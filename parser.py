@@ -22,10 +22,10 @@ INTERLINK      = True
 # INTERLINK      = False
 
 DUMP_DB_RAW      = True
-DUMP_DB_RAW      = False
+#DUMP_DB_RAW      = False
 
 DUMP_DB_COMPILED = True
-DUMP_DB_COMPILED = False
+#DUMP_DB_COMPILED = False
 
 MAX_READ_LINES   = None
 # MAX_READ_LINES   = 50
@@ -164,8 +164,9 @@ def read_dump(fn, cfg):
             has_read_header = True
             print "   header", line
             cols = line.split(sep)
+            print "    header cols B", cols
             cols = [x.strip("\t").strip("\t|").replace(" ", "_") for x in cols]
-            print "    header cols", cols
+            print "    header cols A", cols
             cfg["header"     ] = cols
             cfg["convertersA"] = [None]*len(cols)
             for p in xrange(len(cols)):
@@ -200,7 +201,7 @@ def read_dump(fn, cfg):
             if DEBUG and ln <= DEBUG_LINES:
                 print "    line d cols", ln, dcols
 
-            cfg["data"].append( dcols )
+            cfg["data"].append( tuple(dcols) )
 
             if DEBUG and ln == DEBUG_BREAK:
                 break
@@ -369,7 +370,7 @@ def list_of_hashes_to_header_data(cfg):
         val = cfg["data"][pval]
         lst = [val[x] if x in val else None for x in keys]
         # v  = placeholder( *lst )
-        cfg["data"][pval] = lst
+        cfg["data"][pval] = tuple(lst)
 
 
 def parse_flag(v):
@@ -385,9 +386,12 @@ def linearize(cfg):
 
 
 def read_raw():
+    max_filetype = max([len(        file_type             ) in DATASET])
+    max_filename = max([len(DATASET[file_type]["filename"]) in DATASET])
+    
     for file_type in DATASET:
         filename = DATASET[file_type]["filename"]
-        print "file type", file_type, "file name", filename, "...",
+        print ("file type %"+max_filetype+"-s file name %"+max_filename+"-s") % ( file_type, filename ), '...',
 
         if os.path.exists(filename):
             print "OK"
@@ -746,7 +750,6 @@ class DumpHolder(object):
         c["data"   ] = self.data
         c["header" ] = self.header
         c["headerI"] = self.headerI
-        c["data"   ] = self.data
         c["desc"   ] = self.desc
         c["name"   ] = self.name
         c["holders"] = self.holders
@@ -847,7 +850,7 @@ class DumpHolder(object):
         return self.header
 
     def _get_item_val(self, item):
-        val = copy( self.data[item] )
+        val = list(copy( self.data[item] )) #might not need copy statement
 
         if self.holders is not None:
             for holder_num in xrange(len(self.holders)):
@@ -958,10 +961,11 @@ class DumpHolder(object):
                     print "QFIND: col_name", col_name, "value", value, "res", res
 
             else:
-                if (not DEBUG) and (MAX_READ_LINES is None):
-                    print "  col_name", col_name, "value", value, "NOT FOUND"
-                    print "  ", index
-                    sys.exit(1)
+                #if (not DEBUG) and (MAX_READ_LINES is None):
+                #    print "  db name", self.name, "col_name", col_name, "value", value, "NOT FOUND"
+                #    print "  ", sorted(index.keys())
+                #    sys.exit(1)
+                res = None
 
         else:
             col_pos = self.headerI[col_name]
@@ -1139,7 +1143,7 @@ def main():
             dmp = config[db_name]
 
 
-            print  " printing el"
+            print "db", db_name, "printing el"
             elc = 0
             for el in dmp:
                 print el
@@ -1148,7 +1152,7 @@ def main():
                     break
 
 
-            print  " printing el as dict"
+            print "db", db_name, "printing el as dict"
             dmp.set_as_dict(True)
             elc = 0
             for el in dmp:
@@ -1158,7 +1162,7 @@ def main():
                     break
 
 
-            print  " printing el as list"
+            print "db", db_name, "printing el as list"
             dmp.set_as_dict(False)
             dmp.set_as_list(True)
             elc = 0
@@ -1169,7 +1173,7 @@ def main():
                     break
 
 
-            print  " printing el as tuple"
+            print "db", db_name, "printing el as tuple"
             dmp.set_use_named_tuple(True)
             dmp.set_as_dict(False)
             dmp.set_as_list(False)
@@ -1181,7 +1185,7 @@ def main():
                     break
 
 
-            print  " printing el as tuple and dict"
+            print "db", db_name, "printing el as tuple and dict"
             dmp.set_as_dict(True)
             elc = 0
             for el in dmp:
@@ -1191,7 +1195,7 @@ def main():
                     break
 
 
-            print  " printing el as tuple and list"
+            print "db", db_name, "printing el as tuple and list"
             dmp.set_as_dict(False)
             dmp.set_as_list(True)
             elc = 0
@@ -1202,7 +1206,7 @@ def main():
                     break
 
 
-            print  " printing el links"
+            print "db", db_name, "printing el as links"
             dmp.set_use_named_tuple(False)
             dmp.set_as_dict(False)
             dmp.set_as_list(False)
@@ -1222,7 +1226,7 @@ def main():
                 if ITERATE_MAX is not None and elc > ITERATE_MAX:
                     break
 
-            print  " FINISHED"
+            print "db", db_name, "printing el FINISHED"
 
 
 

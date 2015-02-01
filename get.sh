@@ -8,3 +8,6 @@ tar --directory taxdump -xvf taxdump.tar.gz
 
 mkdir -p taxcat
 tar --directory taxcat -xvf taxcat.tar.gz
+
+
+grep '|$' taxdump/citations.dmp
