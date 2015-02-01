@@ -1,0 +1,15 @@
+The gi_taxid_nucl.dmp is about 160 MB and contains  two columns: the nucleotide's gi and taxid.
+The gi_taxid_prot.dmp is about 17 MB and contains two columns:  the protein's gi  and taxid.
+
+The file gi_taxid_nucl_diff.dmp contains differences between the latest and previous 
+dump files of the nucleotide's gi  and taxid;
+The file gi_taxid_prot_diff.dmp contains differences between the latest and previous 
+dump files of the protein's gi  and taxid;
+
+The first (left) column is the GenBank identifier (gi),
+the second (right) column is taxonomy identifier (taxid).
+The files are updated every Monday around 2am EST.
+
+Please do not attempt to view the files with web browser (some of them could be huge). 
+You can download the file with netscape by right mouse click and 
+select 'Save link as...' or use ftp instead.

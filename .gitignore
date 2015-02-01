@@ -1,0 +1,6 @@
+*.txt
+*.gz
+*.dmp
+*.pyc
+taxdump/
+taxcat/
