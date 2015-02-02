@@ -5,13 +5,26 @@ from __builtin__ import list
 __author__ = 'Saulo Aflitos'
 import os
 import sys
+import simplejson
+
+import jsonpickle
+
 import gzip
-import cPickle
+import cPickle as pickle
+import gc
+
 from copy import copy, deepcopy
 from itertools import izip
 
 from pprint import pformat, pprint
 from collections import namedtuple, defaultdict
+
+
+#      save 2 1    load 2 1    save latest 1   load latest 1   load no pickle   save json 1   read json
+#real  4m30.067s   5m27.524s   4m42.931s       5m29.587s       2m54.808s        7m47.482s     7m09.099s
+#user  3m56.183s   4m47.196s   4m00.956s       4m45.990s       2m35.346s        6m21.610s     6m09.984s
+#sys   0m33.618s   0m39.956s   0m41.678s       0m43.237s       0m19.175s        1m25.403s     0m58.721s
+
 
 WITH_INDEX     = True     # create index of linked fields
 
@@ -22,36 +35,38 @@ INTERLINK      = True     # link fields. facilitates search
 #INTERLINK      = False
 
 DUMP_DB_RAW      = True   # dump raw db instead or reading raw data
-#DUMP_DB_RAW      = False
+DUMP_DB_RAW      = False
 
 DUMP_DB_COMPILED = True   # dump compiled db instead of re-creating index and links
-#DUMP_DB_COMPILED = False
+DUMP_DB_COMPILED = False
 
 MAX_READ_LINES   = None   # max number of lines to read
 #MAX_READ_LINES   = 50
 
-
+PICKLE_VERSION   = pickle.HIGHEST_PROTOCOL
+GZ_LEVEL         = 1
 
 #
 ## DEBUG SECTION
 #
 RE_DO_RAW        = True   # force redo raw data
-#RE_DO_RAW        = False
+RE_DO_RAW        = False
 
 RE_DO_COMPILE    = True   # force redo compile of data
-#RE_DO_COMPILE    = False
+RE_DO_COMPILE    = False
 
 DEBUG            = True   # debug
-#DEBUG            = False
+DEBUG            = False
 
 DEBUG_LINES      = 2      # number of lines to print
 DEBUG_BREAK      = 5      # number of line sto read
 PRINT_HEADERS    = False  # print header information
 
 ITERATE          = True   # iterate over data
-#ITERATE          = False
+ITERATE          = False
 
 ITERATE_MAX      = 2      # number of register to iterate over
+
 
 
 
@@ -159,7 +174,7 @@ def read_dump(fn, cfg):
 
 
     for line in cfg["fh"]:
-        line = line.strip()
+        line = line.strip().decode('ascii', 'ignore')
 
         if len(line) == 0:
             continue
@@ -436,7 +451,7 @@ def read_raw_files():
 def read_db(db_name):
     print "loading db"
     global config
-    config = cPickle.load(open_file(db_name, READ, bin_mode=True))
+    config = pickle.load(open_file(db_name, READ, bin_mode=True))
     print "db loaded"
 
 
@@ -573,8 +588,10 @@ def link_config():
 
 def save_raw_db(raw_db_file_name):
     print "saving raw"
-
-    pcl = cPickle.Pickler(open_file(raw_db_file_name, WRITE, bin_mode=True), cPickle.HIGHEST_PROTOCOL)
+    
+    gc.disable()
+    
+    pcl = pickle.Pickler(open_file(raw_db_file_name, WRITE, bin_mode=True, level=GZ_LEVEL), PICKLE_VERSION)
 
     for db_name in sorted(config.keys()):
         if db_name[0] == "_":
@@ -589,11 +606,15 @@ def save_raw_db(raw_db_file_name):
             pcl.dump( [ db_name, config[ db_name ] ] )
             pcl.clear_memo()
 
+    gc.enable()
+
 
 def read_raw_db(raw_db_file_name):
     print "loading raw"
 
-    pcl = cPickle.Unpickler(open_file(raw_db_file_name, READ, bin_mode=True))
+    gc.disable()
+
+    pcl = pickle.Unpickler(open_file(raw_db_file_name, READ, bin_mode=True))
 
     for db_name in sorted(config.keys()):
         if db_name[0] == "_":
@@ -612,11 +633,15 @@ def read_raw_db(raw_db_file_name):
 
             config[ db_name ] = data
 
+    gc.enable()
+
 
 def save_compiled_db(compiled_db_file_name):
     print "saving compiled"
 
-    pcl = cPickle.Pickler(open_file(compiled_db_file_name, WRITE, bin_mode=True), cPickle.HIGHEST_PROTOCOL)
+    gc.disable()
+
+    pcl = pickle.Pickler(open_file(compiled_db_file_name, WRITE, bin_mode=True, level=GZ_LEVEL), PICKLE_VERSION)
 
     for db_name in sorted(config.keys()):
         if db_name[0] == "_":
@@ -631,11 +656,15 @@ def save_compiled_db(compiled_db_file_name):
             pcl.dump( [ db_name, config[ db_name ].get_compiled_data() ] )
             pcl.clear_memo()
 
+    gc.enable()
+
 
 def read_compiled_db(compiled_db_file_name):
     print "loading compiled"
 
-    pcl = cPickle.Unpickler(open_file(compiled_db_file_name, READ, bin_mode=True))
+    gc.disable()
+
+    pcl = pickle.Unpickler(open_file(compiled_db_file_name, READ, bin_mode=True))
 
     for db_name in sorted(config.keys()):
         if db_name[0] == "_":
@@ -654,8 +683,10 @@ def read_compiled_db(compiled_db_file_name):
 
             config[ db_name ].set_compiled_data( data )
 
+    gc.enable()
 
-def get_data(raw_db_file_name="db.raw.pickle.gz", compiled_db_file_name="db.compiled.pickle.gz"):
+
+def get_data(raw_db_file_name="db.0.raw.pickle.gz", compiled_db_file_name="db.1.compiled.pickle.gz"):
     print "get data"
 
     if RE_DO_RAW:
@@ -723,6 +754,21 @@ def get_data(raw_db_file_name="db.raw.pickle.gz", compiled_db_file_name="db.comp
         print "compiled db read"
 
 
+
+    #out_json = "db.json.gz"
+    #if not os.path.exists(out_json):
+    #    get_data()
+    #
+    #    print "saving json"
+    #    #simplejson.dump(config, open_file("db.json.gz", WRITE, bin_mode=True, level=GZ_LEVEL), separators=(',', ':'), sort_keys=True)
+    #    jsonpickle.set_preferred_backend('simplejson')
+    #    v = jsonpickle.encode(config)
+    #    open_file(out_json, WRITE, bin_mode=True, level=GZ_LEVEL).write( v )
+    #
+    #else:
+    #    print "loading json"
+    #    global config
+    #    config = jsonpickle.decode(open_file(out_json, READ, bin_mode=True).read())
 
 
 
@@ -1077,7 +1123,7 @@ class DumpHolder(object):
         val = list(copy( self.data[item] )) #might not need copy statement
 
         if self.holders is not None:
-            print "name", self.name, "holders", self.holders, "item", item, "val", val, "headers", self.header
+            #print "name", self.name, "holders", self.holders, "item", item, "val", val, "headers", self.header
             for holder_num in xrange(len(self.holders)):
                 holder_key, data_key, holder = self.holders[ holder_num ]
                 data_pos        = self.headerI[ data_key ]
@@ -1275,12 +1321,9 @@ class DbHolder(object):
 def main():
     print "main"
 
+    process_config()
+
     get_data()
-
-
-
-
-
 
 
 
@@ -1522,7 +1565,6 @@ config = {
 
 
 if __name__ == "__main__":
-    process_config()
     main()
 
 
