@@ -13,45 +13,45 @@ from itertools import izip
 from pprint import pformat, pprint
 from collections import namedtuple, defaultdict
 
-WITH_INDEX     = True
+WITH_INDEX     = True     # create index of linked fields
 
-TO_NAMED_TUPLE = True
+TO_NAMED_TUPLE = True     # store data as named tuple. does not work with pickle
 TO_NAMED_TUPLE = False
 
-INTERLINK      = True
-# INTERLINK      = False
+INTERLINK      = True     # link fields. facilitates search
+#INTERLINK      = False
 
-DUMP_DB_RAW      = True
+DUMP_DB_RAW      = True   # dump raw db instead or reading raw data
 #DUMP_DB_RAW      = False
 
-DUMP_DB_COMPILED = True
+DUMP_DB_COMPILED = True   # dump compiled db instead of re-creating index and links
 #DUMP_DB_COMPILED = False
 
-MAX_READ_LINES   = None
-# MAX_READ_LINES   = 50
+MAX_READ_LINES   = None   # max number of lines to read
+#MAX_READ_LINES   = 50
 
 
 
 #
 ## DEBUG SECTION
 #
-RE_DO_RAW          = True
-RE_DO_RAW          = False
+RE_DO_RAW        = True   # force redo raw data
+#RE_DO_RAW        = False
 
-RE_DO_COMPILE      = True
-RE_DO_COMPILE      = False
+RE_DO_COMPILE    = True   # force redo compile of data
+#RE_DO_COMPILE    = False
 
-DEBUG               = True
-DEBUG               = False
+DEBUG            = True   # debug
+#DEBUG            = False
 
-DEBUG_LINES         = 2
-DEBUG_BREAK         = 5
-PRINT_HEADERS       = False
+DEBUG_LINES      = 2      # number of lines to print
+DEBUG_BREAK      = 5      # number of line sto read
+PRINT_HEADERS    = False  # print header information
 
-ITERATE             = True
-# ITERATE        = False
+ITERATE          = True   # iterate over data
+#ITERATE          = False
 
-ITERATE_MAX         = 2
+ITERATE_MAX      = 2      # number of register to iterate over
 
 
 
@@ -145,6 +145,8 @@ def read_dump(fn, cfg):
                 print "header map defined with wrong number of columns", hm
                 sys.exit(1)
 
+
+
     read_header = True
     if "has_header" in cfg and not cfg["has_header"]:
         if "header" not in cfg:
@@ -153,6 +155,8 @@ def read_dump(fn, cfg):
         read_header = False
 
     has_read_header = False
+
+
 
     for line in cfg["fh"]:
         line = line.strip()
@@ -385,13 +389,13 @@ def linearize(cfg):
     cfg["data"] = [x[0] for x in cfg["data"]]
 
 
-def read_raw():
-    max_filetype = max([len(        file_type             ) in DATASET])
-    max_filename = max([len(DATASET[file_type]["filename"]) in DATASET])
+def read_raw_files():
+    max_filetype = max([len(        file_type             ) for file_type in DATASET])
+    max_filename = max([len(DATASET[file_type]["filename"]) for file_type in DATASET])
     
     for file_type in DATASET:
         filename = DATASET[file_type]["filename"]
-        print ("file type %"+max_filetype+"-s file name %"+max_filename+"-s") % ( file_type, filename ), '...',
+        print ("file type %-"+str(max_filetype)+"s file name %-"+str(max_filename)+"s") % ( file_type, filename ), '...',
 
         if os.path.exists(filename):
             print "OK"
@@ -419,14 +423,14 @@ def read_raw():
 
         cfg["fh"].close()
         del cfg["fh"]
-        if "converters"  in cfg: del cfg["converters"]
+        if "converters"  in cfg: del cfg["converters" ]
         if "convertersA" in cfg: del cfg["convertersA"]
-        if "header_map"  in cfg: del cfg["header_map"]
-        if "parser"      in cfg: del cfg["parser"]
-        if "has_header"  in cfg: del cfg["has_header"]
-        if "bin"         in cfg: del cfg["bin"]
-        if "sep"         in cfg: del cfg["sep"]
-        if "post"        in cfg: del cfg["post"]
+        if "header_map"  in cfg: del cfg["header_map" ]
+        if "parser"      in cfg: del cfg["parser"     ]
+        if "has_header"  in cfg: del cfg["has_header" ]
+        if "bin"         in cfg: del cfg["bin"        ]
+        if "sep"         in cfg: del cfg["sep"        ]
+        if "post"        in cfg: del cfg["post"       ]
 
 
 def read_db(db_name):
@@ -437,6 +441,18 @@ def read_db(db_name):
 
 
 def process_config():
+    #for lnk in config["_linker"]:
+    #    for db_name, col_name in lnk:
+    #        cfg = config[db_name]
+    #        if "converters" in cfg:
+    #            pass
+    #        
+    #        if "header_map" in cfg:
+    #            pass
+    #        
+    #        if "holders" in cfg:
+    #            pass
+
     for lnk in config["_linkers"]:
         for pair in lnk:
             pair[1] = pair[1].replace(" ", "_")
@@ -475,6 +491,34 @@ def process_config():
                     v = desc[k]
                     del desc[k]
                     desc[k.replace(" ", "_")] = v
+
+    for db_name in config.keys():
+        #print db_name
+        cfg = config[db_name]
+        
+        if db_name[0] == "_":
+            continue
+
+        else:
+            if "holders" in cfg:
+                #print "holders", cfg["holders"]
+
+                for holder in cfg["holders"]:
+                    holder_from = holder[0]
+                    holder_to   = holder[1]
+                    
+                    if "converters" in cfg:
+                        if holder_from not in cfg["converters"]:
+                            cfg["converters"][holder_from] = None
+                        cfg["converters"][holder_from] = holder[2]
+                    
+                    if "header_map" in cfg:
+                        for header_map in cfg["header_map"]:
+                            if header_map[0] == holder_from:
+                                if len(header_map) == 1:
+                                    header_map.append(None)
+                                header_map[1] = holder[2]
+                                break
 
 
 def compile_config():
@@ -611,446 +655,8 @@ def read_compiled_db(compiled_db_file_name):
             config[ db_name ].set_compiled_data( data )
 
 
-
-
-
-class ConstHolder(object):
-    def __init__(self, name):
-        self.name    = name
-        self.vars    = []
-        self.counter = []
-
-    def get_pos(self, val):
-        return self.vars.index( val )
-
-    def get_value(self, pos):
-        return self.vars[ pos ]
-
-    def get_count(self, pos):
-        return self.counter[ pos ]
-
-    def get_data(self, pos):
-        return ( self.get_value( pos ), self.get_count( pos ) )
-
-    def __call__(self, v):
-        if v in self.vars:
-            ind = self.vars.index(v)
-            self.counter[ind] += 1
-            return ind
-
-        else:
-            self.vars.append(v)
-            self.counter.append(0)
-            return self(v)
-
-    def __getitem__(self, pos):
-        return self.vars[pos]
-
-    def __repr__(self):
-        return pformat( { "vars": [(x, y, self.counter[x]) for x, y in enumerate(self.vars)] } )
-
-
-class LinksHolder(object):
-    def __init__(self, value):
-        self.links    = {}
-        self.value    = value
-
-    def add_link(self, dump_name_from, dump_name_to, col_from, col_to):
-        self.links[dump_name_to] = {
-            "dump_name_from": dump_name_from,
-            "dump_name_to"  : dump_name_to,
-            "col_from"      : col_from,
-            "col_to"        : col_to
-        }
-
-    def get_table_names(self):
-        return sorted(self.links.keys())
-
-    def get_value(self):
-        return self.value
-
-    def get_link(self, db_name, limit=None, page=None):
-        database      = self.links[ db_name        ]
-        dump_name_to  = database[   "dump_name_to" ]
-        col_to        = database[   "col_to"       ]
-        data          = config[     dump_name_to   ].find( col_to, self.value, limit=limit, page=page )
-
-        return data
-
-    def get_links(self, limit=None, page=None):
-        res = {}
-
-        for db_name in self.links:
-            res[db_name] = self.get_link( db_name, limit=limit, page=page )
-
-        return res
-
-    def __repr__(self):
-        links = []
-
-        for db_name in sorted(self.links.keys()):
-            links.append( "%s$%s" % (db_name, self.links[db_name]["col_to"]) )
-
-        links = " | ".join( links )
-        return "<link : %s : %s>" % ( links, self.value )
-
-
-class DumpHolder(object):
-    def __init__(self, cfg, use_named_tuple=False, as_dict=False, as_list=False, create_index=False, create_all_indexes=False):
-        # self.cfg                = cfg
-        self.header             = cfg["header" ]
-        self.data               = cfg["data"   ]
-        self.desc               = cfg["desc"   ] if "desc"    in cfg else None
-        self.name               = cfg["name"   ] if "name"    in cfg else None
-        self.holders            = cfg["holders"] if "holders" in cfg else None
-        self.linkers            = cfg["linkers"] if "linkers" in cfg else None
-        self.named_tuple        = None
-        self.index              = None
-        self.create_index       = create_index
-        self.create_all_indexes = create_all_indexes
-
-        self.as_dict            = as_dict
-        self.as_list            = as_list
-
-        self.headerI            = {}
-        for i in xrange(len(self.header)):
-            self.headerI[ self.header[i] ] = i
-
-        if use_named_tuple:
-            self._gen_named_tuple()
-
-        self._gen_index()
-
-    def set_linkers(self, linkers):
-        self.linkers = linkers
-        self._gen_index( force=True )
-
-    def get_linkers(self):
-        return self.linkers
-
-    def set_index(self, index):
-        self.index = index
-
-    def get_index(self):
-        return self.index
-
-    def get_compiled_data(self):
-        return {
-            "linkers"           : self.linkers,
-            "index"             : self.index,
-            "named_tuple"       : self.named_tuple is not None,
-            "create_index"      : self.create_index,
-            "create_all_indexes": self.create_all_indexes,
-            "as_dict"           : self.as_dict,
-            "as_list"           : self.as_list
-        }
-
-    def get_all_data(self):
-        c = self.get_compiled_data()
-        c["data"   ] = self.data
-        c["header" ] = self.header
-        c["headerI"] = self.headerI
-        c["desc"   ] = self.desc
-        c["name"   ] = self.name
-        c["holders"] = self.holders
-        return c
-
-    def set_compiled_data(self, c):
-        self.linkers            = c["linkers"           ]
-        self.index              = c["index"             ]
-
-        if c["named_tuple"       ]:
-             self._gen_named_tuple()
-
-        self.create_index       = c["create_index"      ]
-        self.create_all_indexes = c["create_all_indexes"]
-        self.as_dict            = c["as_dict"           ]
-        self.as_list            = c["as_list"           ]
-
-    def set_all_data(self, c):
-        self.set_compiled_data(c)
-        self.data    = c["data"   ]
-        self.header  = c["header" ]
-        self.headerI = c["headerI"]
-        self.data    = c["data"   ]
-        self.desc    = c["desc"   ]
-        self.name    = c["name"   ]
-        self.holders = c["holders"]
-
-    def _gen_index(self, force=False):
-        fields = None
-
-        def get_true_val(col_name, v):
-            return self.holders[col_name].get_value(v)
-
-        def get_orig_val(col_name, v):
-            return v
-
-        if self.linkers is not None:
-            fields = self.linkers.keys()
-
-        if ( self.index is None ) or force:
-            if self.create_index:
-                if fields is None or self.create_all_indexes:
-                    fields = self.header
-
-                self.index = {}
-                for col_name in fields:
-                    print "creating index for", self.name, "col", col_name
-                    col_pos = self.headerI[col_name]
-
-                    func = get_orig_val
-
-                    if self.holders is not None and col_name in self.holders:
-                        func = get_true_val
-
-
-                    try:
-                        index_dict = defaultdict(list)
-                        [ index_dict[ func(col_name, line[col_pos]) ].append( idx ) for idx, line in enumerate(self.data) ]
-
-                    except TypeError:
-                        index_dict = defaultdict(list)
-                        [ [index_dict[ func( col_name, line[col_pos][iidx] ) ].append( idx ) for iidx, iline in enumerate(line[col_pos])] for idx, line in enumerate(self.data) ]
-
-                    # index_dict = dict(index_dict)
-                    if DEBUG:
-                        print "  index_dict", index_dict
-                    print "  index length", len(index_dict)
-
-                    self.index[ col_name ] = index_dict
-
-    def set_create_index(self, v):
-        self.create_index = v
-        self._gen_index()
-
-    def set_create_all_indexes(self, v):
-        self.create_all_indexes = v
-        self._gen_index()
-
-    def set_as_dict(self, v):
-        self.as_dict = v
-
-    def set_as_list(self, v):
-        self.as_list = v
-
-    def set_use_named_tuple(self, v):
-        if v:
-            if self.named_tuple is not None: # already active
-                pass
-            else: # activate
-                self._gen_named_tuple()
-        else:
-            self.named_tuple = None
-
-    def _gen_named_tuple(self):
-        self.named_tuple = namedtuple(self.name, self.header)
-
-    def get_header(self):
-        return self.header
-
-    def _get_item_val(self, item):
-        val = list(copy( self.data[item] )) #might not need copy statement
-
-        if self.holders is not None:
-            for holder_num in xrange(len(self.holders)):
-                holder_key, data_key, holder = self.holders[ holder_num ]
-                data_pos        = self.headerI[ data_key ]
-                data            = val[ data_pos ]
-                val[ data_pos ] = holder.get_value( data )
-
-        if self.desc is not None:
-            # print "val", val
-            for data_key in self.desc:
-                # print " desc", data_key,
-                data_pos        = self.headerI[data_key]
-                # print "pos", data_pos,
-                data            = val[ data_pos ]
-                # print "data", data,
-                ndata           = self.desc[ data_key ][ data ]
-                # print "ndata", ndata
-                val[ data_pos ] = ndata
-
-        if self.linkers is not None:
-            # LinkHolder
-            # cfg["linkers"][lnk_data_key].append( [config[lnk_lnk_db_name], lnk_lnk_data_key] )
-
-            for data_key in self.linkers:
-                links           = self.linkers[ data_key ]
-                data_pos        = self.headerI[ data_key ]
-                data            = val[ data_pos ]
-                links_holder    = LinksHolder( data )
-
-                for lnk_db, lnk_data_key in links:
-                    links_holder.add_link(self.name, lnk_db, data_key, lnk_data_key)
-
-                val[ data_pos ] = links_holder
-
-        return val
-
-    def get_item(self, item, as_dict=False, as_list=False):
-        vals = self._get_item_val(item)
-
-        if as_dict or self.as_dict: # return as dict
-            if TO_NAMED_TUPLE:
-                return vals._asdict()
-
-            else:
-                if isinstance(vals, list):
-                    return dict(izip(iter(self.header), iter(vals)))
-                else:
-                    return dict(izip(iter(self.header), iter([vals])))
-
-        elif as_list or self.as_list: # return as list
-            if TO_NAMED_TUPLE:
-                return vals.__getnewargs__()
-
-            else:
-                return vals
-
-        elif self.named_tuple is None: # return as is (default)
-            return vals
-
-        else: #convert to tuple if tuple was requested (default)
-            if isinstance(vals, list):
-                return self.named_tuple( *vals )
-            else:
-                return self.named_tuple( [vals] )
-
-    def get_val(self, item, name):
-        if TO_NAMED_TUPLE:
-            return getattr(self.data[ item ], name)
-
-        else:
-            return self.data[ item ][ self.headerI[ name ] ]
-
-    def get_name(self):
-        return self.name
-
-    def get_num_cols(self):
-        return len(self.header)
-
-    def get_size(self):
-        return len(self.data)
-
-    def find(self, col_name, value, limit=None, page=None ):
-        if isinstance(value, list):
-            res = {}
-            for val in value:
-                res[val] = self._find_value( col_name, val, limit=limit, page=page )
-            return res
-        else:
-            return self._find_value( col_name, value, limit=limit, page=page )
-
-    def _find_value(self, col_name, value, limit=None, page=None):
-        if page is None:
-            page = 0
-
-        res    = None
-        if ( self.index is not None ) and ( col_name in self.index ):
-            index = self.index[ col_name ]
-            if value in index:
-                poses = index[ value ]
-
-                if limit is None:
-                    limit = len(poses)
-
-                res   = [self.get_item( pos ) for pos in poses[page*limit:page*limit+limit]]
-
-                if DEBUG:
-                    print "QFIND: col_name", col_name, "value", value, "res", res
-
-            else:
-                #if (not DEBUG) and (MAX_READ_LINES is None):
-                #    print "  db name", self.name, "col_name", col_name, "value", value, "NOT FOUND"
-                #    print "  ", sorted(index.keys())
-                #    sys.exit(1)
-                res = None
-
-        else:
-            col_pos = self.headerI[col_name]
-            res     = [ self.get_item( idx ) for idx, line in enumerate( self.data ) if line[col_pos] == value ]
-
-            if DEBUG:
-                print "FIND: col_name", col_name, "col_pos", col_pos, "value", value, "res", res
-
-            if limit is not None:
-                if len(res) > limit:
-                    res = res[page*limit:page*limit+limit]
-
-
-        if res is None or len(res) == 0:
-            return None
-
-        return res
-
-    def __len__(self):
-        return self.get_size()
-
-    def __getitem__(self, item):
-        return self.get_item(item)
-
-    # def __iter__(self):
-    #     return iter(self)
-
-
-class DbHolder(object):
-    def __init__(self):
-        self.dbs = {}
-
-    def add(self, cfg):
-        if isinstance(cfg, DumpHolder):
-            self.add_dump_holder( DumpHolder(cfg) )
-        else:
-            self.add_dump_holder(cfg)
-
-    def add_dump_holder(self, dmp):
-        dmp_name = dmp.get_name()
-        self.dbs[ dmp_name ] = dmp
-        self.process_dump_holder(dmp_name)
-
-    def get_dbs(self):
-        return self.dbs.keys()
-
-    def process_dump_holder(self):
-        for db_name in self.dbs:
-            for data_key in self.dbs[db_name].get_header():
-                # if data_key in
-                pass
-        # linkers = {
-        #     "inst_id"                      : [ "CCODE"           , "COWNER"          , "ICODE" ],
-
-        #TODO
-        pass
-
-    def get_db(self, db_name):
-        return self.dbs[db_name]
-
-    def get_header(self, db_name):
-        return self.get_db(db_name).get_header()
-
-    def get_item(self, db_name, item, as_dict=False, as_list=False):
-        val = self.get_db(db_name).get_item(item, as_dict=as_dict, as_list=as_list)
-        return val
-
-    def get_val(self, db_name, item, name):
-        val = self.get_db(db_name).get_val(item, name)
-        return val
-
-    def get_num_cols(self, db_name):
-        return self.get_db(db_name).get_num_cols()
-
-    def get_size(self, db_name):
-        return self.get_db(db_name).get_size()
-
-
-
-
-def main():
-    print "main"
-    raw_db_file_name      = "db.raw.pickle.gz"
-    compiled_db_file_name = "db.compiled.pickle.gz"
-
+def get_data(raw_db_file_name="db.raw.pickle.gz", compiled_db_file_name="db.compiled.pickle.gz"):
+    print "get data"
 
     if RE_DO_RAW:
         if os.path.exists(raw_db_file_name):
@@ -1069,7 +675,7 @@ def main():
 
     if not os.path.exists(raw_db_file_name):
         print "reading raw data"
-        read_raw()
+        read_raw_files()
         print "raw data read"
 
         if DEBUG:
@@ -1230,6 +836,454 @@ def main():
 
 
 
+
+class ConstHolder(object):
+    def __init__(self, name, converter=str):
+        self.name      = name
+        self.vars      = []
+        self.counter   = []
+        self.converter = converter
+
+    def get_pos(self, val):
+        return self.vars.index( val )
+
+    def get_value(self, pos):
+        return self.vars[ pos ]
+
+    def get_count(self, pos):
+        return self.counter[ pos ]
+
+    def get_data(self, pos):
+        return ( self.get_value( pos ), self.get_count( pos ) )
+
+    def __call__(self, v):
+        v = self.converter(v)
+        if v in self.vars:
+            ind = self.vars.index(v)
+            self.counter[ind] += 1
+            return ind
+
+        else:
+            self.vars.append(v)
+            self.counter.append(0)
+            return self(v)
+
+    def __getitem__(self, pos):
+        return self.vars[pos]
+
+    def __repr__(self):
+        return pformat( { "vars": [(x, y, self.counter[x]) for x, y in enumerate(self.vars)] } )
+
+
+class LinksHolder(object):
+    def __init__(self, value):
+        self.links    = {}
+        self.value    = value
+
+    def add_link(self, dump_name_from, dump_name_to, col_from, col_to):
+        self.links[dump_name_to] = {
+            "dump_name_from": dump_name_from,
+            "dump_name_to"  : dump_name_to,
+            "col_from"      : col_from,
+            "col_to"        : col_to
+        }
+
+    def get_table_names(self):
+        return sorted(self.links.keys())
+
+    def get_value(self):
+        return self.value
+
+    def get_link(self, db_name, limit=None, page=None):
+        database      = self.links[ db_name        ]
+        dump_name_to  = database[   "dump_name_to" ]
+        col_to        = database[   "col_to"       ]
+        data          = config[     dump_name_to   ].find( col_to, self.value, limit=limit, page=page )
+
+        return data
+
+    def get_links(self, limit=None, page=None):
+        res = {}
+
+        for db_name in self.links:
+            res[db_name] = self.get_link( db_name, limit=limit, page=page )
+
+        return res
+
+    def __repr__(self):
+        links = []
+
+        for db_name in sorted(self.links.keys()):
+            links.append( "%s$%s" % (db_name, self.links[db_name]["col_to"]) )
+
+        links = " | ".join( links )
+        return "<link : %s : %s>" % ( links, self.value )
+
+
+class DumpHolder(object):
+    def __init__(self, cfg, use_named_tuple=False, as_dict=False, as_list=False, create_index=False, create_all_indexes=False):
+        # self.cfg                = cfg
+        self.header             = cfg["header" ]
+        self.data               = cfg["data"   ]
+        self.desc               = cfg["desc"   ] if "desc"    in cfg else None
+        self.name               = cfg["name"   ] if "name"    in cfg else None
+        self.holders            = cfg["holders"] if "holders" in cfg else None
+        self.linkers            = cfg["linkers"] if "linkers" in cfg else None
+        self.named_tuple        = None
+        self.index              = None
+        self.create_index       = create_index
+        self.create_all_indexes = create_all_indexes
+
+        self.as_dict            = as_dict
+        self.as_list            = as_list
+
+        self.headerI            = {}
+        for i in xrange(len(self.header)):
+            self.headerI[ self.header[i] ] = i
+
+        if use_named_tuple:
+            self._gen_named_tuple()
+
+        self._gen_index()
+
+    def set_linkers(self, linkers):
+        self.linkers = linkers
+        self._gen_index( force=True )
+
+    def get_linkers(self):
+        return self.linkers
+
+    def set_index(self, index):
+        self.index = index
+
+    def get_index(self):
+        return self.index
+
+    def get_compiled_data(self):
+        return {
+            "linkers"           : self.linkers,
+            "index"             : self.index,
+            "named_tuple"       : self.named_tuple is not None,
+            "create_index"      : self.create_index,
+            "create_all_indexes": self.create_all_indexes,
+            "as_dict"           : self.as_dict,
+            "as_list"           : self.as_list
+        }
+
+    def get_all_data(self):
+        c = self.get_compiled_data()
+        c["data"   ] = self.data
+        c["header" ] = self.header
+        c["headerI"] = self.headerI
+        c["desc"   ] = self.desc
+        c["name"   ] = self.name
+        c["holders"] = self.holders
+        return c
+
+    def set_compiled_data(self, c):
+        self.linkers            = c["linkers"           ]
+        self.index              = c["index"             ]
+
+        if c["named_tuple"       ]:
+             self._gen_named_tuple()
+
+        self.create_index       = c["create_index"      ]
+        self.create_all_indexes = c["create_all_indexes"]
+        self.as_dict            = c["as_dict"           ]
+        self.as_list            = c["as_list"           ]
+
+    def set_all_data(self, c):
+        self.set_compiled_data(c)
+        self.data    = c["data"   ]
+        self.header  = c["header" ]
+        self.headerI = c["headerI"]
+        self.desc    = c["desc"   ]
+        self.name    = c["name"   ]
+        self.holders = c["holders"]
+
+    def _gen_index(self, force=False):
+        fields = None
+
+        def get_true_val(col_name, v):
+            return self.holders[col_name].get_value(v)
+
+        def get_orig_val(col_name, v):
+            return v
+
+        if self.linkers is not None:
+            fields = self.linkers.keys()
+
+        if ( self.index is None ) or force:
+            if self.create_index:
+                if fields is None or self.create_all_indexes:
+                    fields = self.header
+
+                self.index = {}
+                for col_name in fields:
+                    print "creating index for", self.name, "col", col_name
+                    col_pos = self.headerI[col_name]
+
+                    func = get_orig_val
+
+                    if self.holders is not None and col_name in self.holders:
+                        func = get_true_val
+
+
+                    try:
+                        index_dict = defaultdict(list)
+                        [ index_dict[ func(col_name, line[col_pos]) ].append( idx ) for idx, line in enumerate(self.data) ]
+
+                    except TypeError:
+                        index_dict = defaultdict(list)
+                        [ [index_dict[ func( col_name, line[col_pos][iidx] ) ].append( idx ) for iidx, iline in enumerate(line[col_pos])] for idx, line in enumerate(self.data) ]
+
+                    # index_dict = dict(index_dict)
+                    if DEBUG:
+                        print "  index_dict", index_dict
+                    print "  index length", len(index_dict)
+
+                    self.index[ col_name ] = index_dict
+
+    def set_create_index(self, v):
+        self.create_index = v
+        self._gen_index()
+
+    def set_create_all_indexes(self, v):
+        self.create_all_indexes = v
+        self._gen_index()
+
+    def set_as_dict(self, v):
+        self.as_dict = v
+
+    def set_as_list(self, v):
+        self.as_list = v
+
+    def set_use_named_tuple(self, v):
+        if v:
+            if self.named_tuple is not None: # already active
+                pass
+            else: # activate
+                self._gen_named_tuple()
+        else:
+            self.named_tuple = None
+
+    def _gen_named_tuple(self):
+        self.named_tuple = namedtuple(self.name, self.header)
+
+    def get_header(self):
+        return self.header
+
+    def _get_item_val(self, item):
+        val = list(copy( self.data[item] )) #might not need copy statement
+
+        if self.holders is not None:
+            print "name", self.name, "holders", self.holders, "item", item, "val", val, "headers", self.header
+            for holder_num in xrange(len(self.holders)):
+                holder_key, data_key, holder = self.holders[ holder_num ]
+                data_pos        = self.headerI[ data_key ]
+                data            = val[ data_pos ]
+                val[ data_pos ] = holder.get_value( data )
+
+        if self.desc is not None:
+            # print "val", val
+            for data_key in self.desc:
+                # print " desc", data_key,
+                data_pos        = self.headerI[data_key]
+                # print "pos", data_pos,
+                data            = val[ data_pos ]
+                # print "data", data,
+                ndata           = self.desc[ data_key ][ data ]
+                # print "ndata", ndata
+                val[ data_pos ] = ndata
+
+        if self.linkers is not None:
+            # LinkHolder
+            # cfg["linkers"][lnk_data_key].append( [config[lnk_lnk_db_name], lnk_lnk_data_key] )
+
+            for data_key in self.linkers:
+                links           = self.linkers[ data_key ]
+                data_pos        = self.headerI[ data_key ]
+                data            = val[ data_pos ]
+                links_holder    = LinksHolder( data )
+
+                for lnk_db, lnk_data_key in links:
+                    links_holder.add_link(self.name, lnk_db, data_key, lnk_data_key)
+
+                val[ data_pos ] = links_holder
+
+        return val
+
+    def get_item(self, item, as_dict=False, as_list=False):
+        vals = self._get_item_val(item)
+
+        if as_dict or self.as_dict: # return as dict
+            if TO_NAMED_TUPLE:
+                return vals._asdict()
+
+            else:
+                if isinstance(vals, list):
+                    return dict(izip(iter(self.header), iter(vals)))
+                else:
+                    return dict(izip(iter(self.header), iter([vals])))
+
+        elif as_list or self.as_list: # return as list
+            if TO_NAMED_TUPLE:
+                return vals.__getnewargs__()
+
+            else:
+                return vals
+
+        elif self.named_tuple is None: # return as is (default)
+            return vals
+
+        else: #convert to tuple if tuple was requested (default)
+            if isinstance(vals, list):
+                return self.named_tuple( *vals )
+            else:
+                return self.named_tuple( [vals] )
+
+    def get_val(self, item, name):
+        if TO_NAMED_TUPLE:
+            return getattr(self.data[ item ], name)
+
+        else:
+            return self.data[ item ][ self.headerI[ name ] ]
+
+    def get_name(self):
+        return self.name
+
+    def get_num_cols(self):
+        return len(self.header)
+
+    def get_size(self):
+        return len(self.data)
+
+    def find(self, col_name, value, limit=None, page=None ):
+        if isinstance(value, list):
+            res = {}
+            for val in value:
+                res[val] = self._find_value( col_name, val, limit=limit, page=page )
+            return res
+        else:
+            return self._find_value( col_name, value, limit=limit, page=page )
+
+    def _find_value(self, col_name, value, limit=None, page=None):
+        if page is None:
+            page = 0
+
+        res    = None
+        if ( self.index is not None ) and ( col_name in self.index ):
+            index = self.index[ col_name ]
+            if value in index:
+                poses = index[ value ]
+
+                if limit is None:
+                    limit = len(poses)
+
+                res   = [self.get_item( pos ) for pos in poses[page*limit:page*limit+limit]]
+
+                if DEBUG:
+                    print "QFIND: col_name", col_name, "value", value, "res", res
+
+            else:
+                #if (not DEBUG) and (MAX_READ_LINES is None):
+                #    print "  db name", self.name, "col_name", col_name, "value", value, "NOT FOUND"
+                #    print "  ", sorted(index.keys())
+                #    sys.exit(1)
+                res = None
+
+        else:
+            col_pos = self.headerI[col_name]
+            res     = [ self.get_item( idx ) for idx, line in enumerate( self.data ) if line[col_pos] == value ]
+
+            if DEBUG:
+                print "FIND: col_name", col_name, "col_pos", col_pos, "value", value, "res", res
+
+            if limit is not None:
+                if len(res) > limit:
+                    res = res[page*limit:page*limit+limit]
+
+
+        if res is None or len(res) == 0:
+            return None
+
+        return res
+
+    def __len__(self):
+        return self.get_size()
+
+    # def __iter__(self):
+    #     return iter(self)
+
+    def __getitem__(self, item):
+        return self.get_item(item)
+
+
+class DbHolder(object):
+    def __init__(self):
+        self.dbs = {}
+
+    def add(self, cfg):
+        if isinstance(cfg, DumpHolder):
+            self.add_dump_holder( DumpHolder(cfg) )
+        else:
+            self.add_dump_holder(cfg)
+
+    def add_dump_holder(self, dmp):
+        dmp_name = dmp.get_name()
+        self.dbs[ dmp_name ] = dmp
+        self.process_dump_holder(dmp_name)
+
+    def get_dbs(self):
+        return self.dbs.keys()
+
+    def process_dump_holder(self):
+        for db_name in self.dbs:
+            for data_key in self.dbs[db_name].get_header():
+                # if data_key in
+                pass
+        # linkers = {
+        #     "inst_id"                      : [ "CCODE"           , "COWNER"          , "ICODE" ],
+
+        #TODO
+        pass
+
+    def get_db(self, db_name):
+        return self.dbs[db_name]
+
+    def get_header(self, db_name):
+        return self.get_db(db_name).get_header()
+
+    def get_item(self, db_name, item, as_dict=False, as_list=False):
+        val = self.get_db(db_name).get_item(item, as_dict=as_dict, as_list=as_list)
+        return val
+
+    def get_val(self, db_name, item, name):
+        val = self.get_db(db_name).get_val(item, name)
+        return val
+
+    def get_num_cols(self, db_name):
+        return self.get_db(db_name).get_num_cols()
+
+    def get_size(self, db_name):
+        return self.get_db(db_name).get_size()
+
+
+
+
+
+def main():
+    print "main"
+
+    get_data()
+
+
+
+
+
+
+
+
 holders = {
     "collection_type": ConstHolder("collection_type"),
     "qualifier_type" : ConstHolder("qualifier_type" ),
@@ -1238,6 +1292,7 @@ holders = {
     "rank"           : ConstHolder("rank"           ),#-- rank of this node (superkingdom, kingdom, ...)
 }
 
+   
 
 
 config = {
@@ -1281,14 +1336,17 @@ config = {
     ],
     "CCODE"             : {
                             "parser"    : read_dump,
-                            "holders"   : [["collection_type", "collection_type"],["qualifier_type", "qualifier_type"]],
+                            "holders"   : [
+                                [ "collection_type", "collection_type" ],
+                                [ "qualifier_type" , "qualifier_type"  ]
+                            ],
                             "converters": {
                                 "coll_id"        : int,
                                 "inst_id"        : int,
                                 "coll_size"      : int,
                                 "coll_status"    : parse_flag,
-                                "collection_type": holders["collection_type"],
-                                "qualifier_type" : holders["qualifier_type" ],
+                                #"collection_type": holders["collection_type"],
+                                #"qualifier_type" : holders["qualifier_type" ],
                             }
     },
     "COLL"              : {
@@ -1296,19 +1354,23 @@ config = {
                             "has_header": False,
                             "sep"       : "\t",
                             "header_map": [
-                                ["inst_code"],#The first column is the top-level category -
-                                ["inst_type"],#and the second column is the corresponding species-level taxid.
-                                ["inst_name"] #third column is the taxid itself,
+                                [ "inst_code" ],#The first column is the top-level category -
+                                [ "inst_type" ],#and the second column is the corresponding species-level taxid.
+                                [ "inst_name" ] #third column is the taxid itself,
                             ]
     },
     "COWNER"            : {
                             "parser"    : read_dump,
-                            "holders"   : [["country", "country"],["collection_type", "collection_type"],["qualifier_type", "qualifier_type"]],
+                            "holders"   : [
+                                [ "country"        , "country"         ],
+                                [ "collection_type", "collection_type" ],
+                                [ "qualifier_type" , "qualifier_type"  ]
+                            ],
                             "converters": {
                                 "inst_id"        : int,
-                                "country"        : holders["country"],
-                                "collection_type": holders["collection_type"],
-                                "qualifier_type" : holders["qualifier_type"],
+                                #"country"        : holders["country"        ],
+                                #"collection_type": holders["collection_type"],
+                                #"qualifier_type" : holders["qualifier_type" ],
                             }
     },
     "TAXID_NUC"         : {
@@ -1318,8 +1380,8 @@ config = {
                             "has_header": False,
                             "sep"       : "\t",
                             "header_map": [
-                                ["gi"   , int ],#nucleotide's gi
-                                ["taxid", int ],#taxid
+                                [ "gi"   , int ],#nucleotide's gi
+                                [ "taxid", int ],#taxid
                             ]
     },
     "TAXID_PROT"        : {
@@ -1329,8 +1391,8 @@ config = {
                             "has_header": False,
                             "sep"       : "\t",
                             "header_map": [
-                                ["gi"   , int ],#nucleotide's gi
-                                ["taxid", int ],#taxid
+                                [ "gi"   , int ],#nucleotide's gi
+                                [ "taxid", int ],#taxid
                             ]
     },
     "ICODE"             : {
@@ -1345,9 +1407,9 @@ config = {
                             "has_header": False,
                             "sep"       : "\t",
                             "header_map": [
-                                ["top_level_category"       ],#The first column is the top-level category -
-                                ["species_level_taxid", int ],#and the second column is the corresponding species-level taxid.
-                                ["taxid"              , int ],#third column is the taxid itself,
+                                [ "top_level_category"       ],#The first column is the top-level category -
+                                [ "species_level_taxid", int ],#and the second column is the corresponding species-level taxid.
+                                [ "taxid"              , int ],#third column is the taxid itself,
                             ],
                             "desc"      : {
                                 "top_level_category": {
@@ -1363,25 +1425,25 @@ config = {
                             "parser"    : read_dump,
                             "has_header": False,
                             "header_map": [
-                                ["cit_id"    , int             ],#-- the unique id of citation
-                                ["cit_key"                     ],#-- citation key
-                                ["pubmed_id" , int             ],#-- unique id in PubMed database (0 if not in PubMed)
-                                ["medline_id", int             ],#-- unique id in MedLine database (0 if not in MedLine)
-                                ["url"                         ],#-- URL associated with citation
-                                ["text"                        ],#-- any text (usually article name and authors)
-                                                                 # -- The following characters are escaped in this text by a backslash:
-                                                                 # -- newline (appear as "\n"),
-                                                                 # -- tab character ("\t"),
-                                                                 # -- double quotes ('\ "'),
-                                                                 # -- backslash character (" \\ ").
-                                ["taxid_list", parse_taxid_list],#-- list of node ids separated by a single space
+                                [ "cit_id"    , int              ],#-- the unique id of citation
+                                [ "cit_key"                      ],#-- citation key
+                                [ "pubmed_id" , int              ],#-- unique id in PubMed database (0 if not in PubMed)
+                                [ "medline_id", int              ],#-- unique id in MedLine database (0 if not in MedLine)
+                                [ "url"                          ],#-- URL associated with citation
+                                [ "text"                         ],#-- any text (usually article name and authors)
+                                                                   # -- The following characters are escaped in this text by a backslash:
+                                                                   # -- newline (appear as "\n"),
+                                                                   # -- tab character ("\t"),
+                                                                   # -- double quotes ('\ "'),
+                                                                   # -- backslash character (" \\ ").
+                                [ "taxid_list", parse_taxid_list ],#-- list of node ids separated by a single space
                             ]
     },
     "TAXDUMP_DELNODES"  : {
                             "parser"    : read_dump,
                             "has_header": False,
                             "header_map": [
-                                ["tax_id", int],#-- deleted node id
+                                [ "tax_id", int ],#-- deleted node id
                             ],
                             # "post": linearize
     },
@@ -1389,10 +1451,10 @@ config = {
                             "parser"    : read_dump,
                             "has_header": False,
                             "header_map": [
-                                ["division id"  , int],#-- taxonomy database division id
-                                ["division cde"      ],#-- GenBank division code (three characters)
-                                ["division name"     ],#-- e.g. BCT, PLN, VRT, MAM, PRI...
-                                ["comments"          ] #comments
+                                [ "division id"  , int ],#-- taxonomy database division id
+                                [ "division cde"       ],#-- GenBank division code (three characters)
+                                [ "division name"      ],#-- e.g. BCT, PLN, VRT, MAM, PRI...
+                                [ "comments"           ] #comments
                             ]
     },
     "TAXDUMP_GC"        : {
@@ -1402,50 +1464,56 @@ config = {
                             "parser"    : read_dump,
                             "has_header": False,
                             "header_map": [
-                                ["genetic code id",	int],#-- GenBank genetic code id
-                                ["abbreviation"        ],#-- genetic code name abbreviation
-                                ["name"                ],#-- genetic code name
-                                ["cde"                 ],#-- translation table for this genetic code
-                                ["starts"              ] #-- start codons for this genetic code
+                                [ "genetic code id",	int],#-- GenBank genetic code id
+                                [ "abbreviation"           ],#-- genetic code name abbreviation
+                                [ "name"                   ],#-- genetic code name
+                                [ "cde"                    ],#-- translation table for this genetic code
+                                [ "starts"                 ] #-- start codons for this genetic code
                             ]
     },
     "TAXDUMP_MERGED"    : {
                             "parser"    : read_dump,
                             "has_header": False,
                             "header_map": [
-                                ["old_tax_id"    , int        ],#-- id of nodes which has been merged
-                                ["new_tax_id"    , int        ] #-- id of nodes which is result of merging
+                                [ "old_tax_id"    , int    ],#-- id of nodes which has been merged
+                                [ "new_tax_id"    , int    ] #-- id of nodes which is result of merging
                             ]
     },
     "TAXDUMP_NAMES"     : {
                             "parser"    : read_dump,
                             "has_header": False,
-                            "holders"   : [["name class", "name class"]],
+                            "holders"   : [
+                                [ "name class", "name class" ]
+                            ],
                             "header_map": [
-                                ["tax_id"     , int                  ],#-- the id of node associated with this name
-                                ["name_txt"                          ],#-- name itself
-                                ["unique name"                       ],#-- the unique variant of this name if name not unique
-                                ["name class" , holders["name class"]] #-- (synonym, common name, ...)
+                                [ "tax_id"     , int                   ],#-- the id of node associated with this name
+                                [ "name_txt"                           ],#-- name itself
+                                [ "unique name"                        ],#-- the unique variant of this name if name not unique
+                                [ "name class"                         ] #-- (synonym, common name, ...)
+                                #[ "name class" , holders["name class"] ] #-- (synonym, common name, ...)
                             ]
     },
     "TAXDUMP_NODES"     : {
                             "parser"    : read_dump,
                             "has_header": False,
-                            "holders"   : [["rank", "rank"]],
+                            "holders"   : [
+                                [ "rank", "rank" ]
+                            ],
                             "header_map": [
-                                ["tax_id"                       , int            ],#-- node id in GenBank taxonomy database
-                                ["parent tax_id"                , int            ],#-- parent node id in GenBank taxonomy database
-                                ["rank"                         , holders["rank"]],#-- rank of this node (superkingdom, kingdom, ...)
-                                ["embl code"                                     ],#-- locus-name prefix; not unique
-                                ["division id"                  , int            ],#-- see division.dmp file
-                                ["inherited div flag"           , parse_flag     ],#-- 1 if node inherits division from parent
-                                ["genetic code id"              , int            ],#-- see gencode.dmp file
-                                ["inherited GC flag"            , parse_flag     ],#-- 1 if node inherits genetic code from parent
-                                ["mitochondrial genetic code id", int            ],#-- see gencode.dmp file
-                                ["inherited MGC flag"           , parse_flag     ],#-- 1 if node inherits mitochondrial gencode from parent
-                                ["GenBank hidden flag"          , parse_flag     ],#-- 1 if name is suppressed in GenBank entry lineage
-                                ["hidden subtree root flag"     , parse_flag     ],#-- 1 if this subtree has no sequence data yet
-                                ["comments"                                      ] #-- free-text comments and citations
+                                [ "tax_id"                       , int             ],#-- node id in GenBank taxonomy database
+                                [ "parent tax_id"                , int             ],#-- parent node id in GenBank taxonomy database
+                                #[ "rank"                         , holders["rank"] ],#-- rank of this node (superkingdom, kingdom, ...)
+                                [ "rank"                                           ],#-- rank of this node (superkingdom, kingdom, ...)
+                                [ "embl code"                                      ],#-- locus-name prefix; not unique
+                                [ "division id"                  , int             ],#-- see division.dmp file
+                                [ "inherited div flag"           , parse_flag      ],#-- 1 if node inherits division from parent
+                                [ "genetic code id"              , int             ],#-- see gencode.dmp file
+                                [ "inherited GC flag"            , parse_flag      ],#-- 1 if node inherits genetic code from parent
+                                [ "mitochondrial genetic code id", int             ],#-- see gencode.dmp file
+                                [ "inherited MGC flag"           , parse_flag      ],#-- 1 if node inherits mitochondrial gencode from parent
+                                [ "GenBank hidden flag"          , parse_flag      ],#-- 1 if name is suppressed in GenBank entry lineage
+                                [ "hidden subtree root flag"     , parse_flag      ],#-- 1 if this subtree has no sequence data yet
+                                [ "comments"                                       ] #-- free-text comments and citations
                             ]
     }
 }
