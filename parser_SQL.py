@@ -15,7 +15,7 @@ from itertools import izip
 from pprint import pformat, pprint
 from collections import namedtuple, defaultdict
 
-from parser_sql_struct import *
+from parser_SQL_struct import *
 
 #      save 2 1    load 2 1    save latest 1   load latest 1   load no pickle   save json 1   read json
 #real  4m30.067s   5m27.524s   4m42.931s       5m29.587s       2m54.808s        7m47.482s     7m09.099s
@@ -25,7 +25,7 @@ from parser_sql_struct import *
 
 
 MAX_READ_LINES   = None   # max number of lines to read
-MAX_READ_LINES   = 500
+MAX_READ_LINES   = 5
 
 DUMP_EVERY       = 25000
 
@@ -231,6 +231,10 @@ def read_dump(fn, cfg):
             cfg["convertersA"].append(  v )
 
 
+    desc = cfg["desc"] if "desc" in cfg else None
+
+
+    headerI     = {}
     read_header = True
     if "has_header" in cfg and not cfg["has_header"]:
         if "header" not in cfg:
@@ -238,8 +242,11 @@ def read_dump(fn, cfg):
             sys.exit(1)
         read_header = False
 
-    has_read_header = False
+        for i, v in enumerate(cfg["header"]):
+            headerI[ v ] = i
 
+
+    has_read_header = False
 
 
     for line in cfg["fh"]:
@@ -250,11 +257,11 @@ def read_dump(fn, cfg):
 
         if read_header and not has_read_header:
             has_read_header = True
-            print "   header", line
+            #print "   header", line
             cols = line.split(sep)
-            print "    header cols B", cols
+            #print "    header cols B", cols
             cols = [x.strip("\t").strip("\t|").replace(" ", "_") for x in cols]
-            print "    header cols A", cols
+            #print "    header cols A", cols
             cfg["header"     ] = cols
             cfg["convertersA"] = [None]*len(cols)
             for p in xrange(len(cols)):
@@ -262,6 +269,10 @@ def read_dump(fn, cfg):
                 if cname not in cfg["converters"]:
                     cfg["converters"][cname] = str
                 cfg["convertersA"][p] = cfg["converters"][cname]
+
+            for i, v in enumerate(cols):
+                headerI[ v ] = i
+
             continue
 
         else:
@@ -286,6 +297,18 @@ def read_dump(fn, cfg):
 
             for p in xrange(len(cols)):
                 dcols[p] = cfg["convertersA"][p](cols[p])
+
+            if desc is not None:
+                # print "val", val
+                for data_key in desc:
+                    # print " desc", data_key,
+                    data_pos        = headerI[data_key]
+                    # print "pos", data_pos,
+                    data            = dcols[ data_pos ]
+                    # print "data", data,
+                    ndata           = desc[ data_key ][ data ]
+                    # print "ndata", ndata
+                    dcols[ data_pos ] = ndata
 
             if DEBUG and ln <= DEBUG_LINES:
                 print "    line d cols", ln, dcols
@@ -329,17 +352,22 @@ name "Mold Mitochondrial; Protozoan Mitochondrial; Coelenterate
   -- Base3  TCAGTCAGTCAGTCAGTCAGTCAGTCAGTCAGTCAGTCAGTCAGTCAGTCAGTCAGTCAGTCAG
  },
     """
-
     titles = { "name": str, "id": int, "ncbieaa": str, "sncbieaa": str, "Base1": str, "Base2": str, "Base3": str }
 
     cfg["data"       ] = []
     # sep = "\t"
 
-    ln  = 0
+    last_k = None
+    ln     = 0
     for line in cfg["fh"]:
         if len(line) >= 2 and line[:2] == '--':
             continue
 
+        try:
+            has_ident = line[:2] == "  "
+        except:
+            has_ident = False
+            
         line = line.strip()
 
         if len(line) == 0:
@@ -363,17 +391,24 @@ name "Mold Mitochondrial; Protozoan Mitochondrial; Coelenterate
         if line[0] == "}":
             continue
 
+        if DEBUG and len(cfg["data"       ]) <= DEBUG_LINES:
+            print "LINE B", line
+            
         line = line.strip().strip('--').strip()
+        
+        if DEBUG and len(cfg["data"       ]) <= DEBUG_LINES:
+            print "LINE A", line
 
         cols = [ x.strip().strip('"').strip('-').strip(',').strip().strip(',').strip() for x in line.split() ]
         k    = cols[0]
         v    = " ".join(cols[1:]).strip()
 
-        if k not in titles: # HUGE hack
-            v = cfg["data"       ][-1]["name"] + " " + k + " " + v
-            k = "name"
-
-        else:
+        #if k not in titles: # HUGE hack
+        #    v = cfg["data"       ][-1]["name"] + " " + k + " " + v
+        #    k = "name"
+        #
+        #else:
+        if k in titles: # HUGE hack
             v = titles[k](v)
             if k in cfg["data"       ][-1]:
                 kc = 2
@@ -383,12 +418,17 @@ name "Mold Mitochondrial; Protozoan Mitochondrial; Coelenterate
                     kn  = k + str(kc)
                 k = kn
 
+        if not has_ident:
+            if DEBUG:
+                print "No ident"
+            v = " ".join( [ cfg["data"       ][-1][last_k], k, v ] )
+            k = last_k
 
         if DEBUG and len(cfg["data"       ]) <= DEBUG_LINES:
-            print " i %d k '%s' v '%s'" % (len(cfg["data"       ]), k, v)
+            print " i %d k '%s' v '%s'" % (len(cfg["data"       ]), k, v), "\n"
 
         cfg["data"       ][-1][k] = v
-
+        last_k = k
 
 
     # print cfg["data"]
@@ -399,11 +439,43 @@ name "Mold Mitochondrial; Protozoan Mitochondrial; Coelenterate
     else:
         list_of_hashes_to_header_data(cfg)
 
+def split_citations(cfg):
+    ndata = {
+        "header": ["cit_id", "taxid"],
+        "db"    : cfg["db2"],
+        "data"  : [],
+        "name"  : cfg["name"] + "_" + "CIT_IDS"
+    }
+
+    #print cfg["header"]
+    #print cfg["data"]
+
+    id_index  = cfg["header"].index("cit_id"    )
+    lst_index = cfg["header"].index("taxid_list")
+    cfg["header"].remove("taxid_list")
+    #print cfg["header"]
+
+    for i, row in enumerate(cfg["data"]):
+        cit_id     = cfg["data"][i][id_index ]
+        taxid_list = cfg["data"][i][lst_index]
+
+        if taxid_list is not None:
+            for taxid in taxid_list:
+                ndata["data"].append( (cit_id, taxid) )
+        
+        cfg["data"][i] = tuple(list(row)[:-1])
+    
+    #print cfg["data"]
+    #print ndata["data"]
+    #sys.exit(0)
+    add_to_db(cfg)
+    add_to_db(ndata)
+    
 
 def add_to_db(cfg):
     print "saving to sql db", cfg["name"]
     db_table = cfg["db"      ]
-    header   = cfg["header"  ]
+    header   = [x.lower() for x in cfg["header"  ]]
     uniques  = None
     if "_uniques" in cfg:
         uniques  = {}
@@ -448,6 +520,7 @@ def add_to_db(cfg):
             vals = uniques[k]
             for v in [x for x in vals if vals[x] > 1]:
                 print "  val:", v, vals[x]
+
 
 def process_config():
     for lnk in config["_linkers"]:
@@ -522,13 +595,12 @@ def read_raw_files():
         cfg["parser"]( filename, cfg )
 
         if "post" in cfg:
-            cfg["post"](cfg)
+            for post in cfg["post"]:
+                post(cfg)
 
         cfg["fh"].close()
         del cfg["fh"]
         
-        if not DEBUG:
-            add_to_db(cfg)
 
         if "converters"  in cfg: del cfg["converters" ]
         if "convertersA" in cfg: del cfg["convertersA"]
@@ -593,7 +665,8 @@ config = {
                                 #"collection_type": holders["collection_type"],
                                 #"qualifier_type" : holders["qualifier_type" ],
                             },
-                            "db"        : db_ccode
+                            "db"        : db_ccode,
+                            "post"      : [ add_to_db ]
     },
     "COLL"              : {
                             "_uniques"  : ["inst_code"],
@@ -605,7 +678,8 @@ config = {
                                 [ "inst_type" ],#and the second column is the corresponding species-level taxid.
                                 [ "inst_name" ] #third column is the taxid itself,
                             ],
-                            "db"        : db_coll
+                            "db"        : db_coll,
+                            "post"      : [ add_to_db ]
     },
     "COWNER"            : {
                             "parser"    : read_dump,
@@ -615,7 +689,8 @@ config = {
                                 #"collection_type": holders["collection_type"],
                                 #"qualifier_type" : holders["qualifier_type" ],
                             },
-                            "db"        : db_cowner
+                            "db"        : db_cowner,
+                            "post"      : [ add_to_db ]
     },
     "TAXID_NUC"         : {
                             #"skip"      : True,
@@ -627,7 +702,8 @@ config = {
                                 [ "gi"   , int ],#nucleotide's gi
                                 [ "taxid", int ],#taxid
                             ],
-                            "db"        : db_taxid_nuc
+                            "db"        : db_taxid_nuc,
+                            "post"      : [ add_to_db ]
     },
     "TAXID_PROT"        : {
                             #"skip"      : True,
@@ -639,14 +715,16 @@ config = {
                                 [ "gi"   , int ],#nucleotide's gi
                                 [ "taxid", int ],#taxid
                             ],
-                            "db"        : db_taxid_prot
+                            "db"        : db_taxid_prot,
+                            "post"      : [ add_to_db ]
     },
     "ICODE"             : {
                             "parser": read_dump,
                             "converters": {
                                 "inst_id": int
                             },
-                            "db"        : db_icode
+                            "db"        : db_icode,
+                            "post"      : [ add_to_db ]
     },
     "CATEGORIES"        : {
                             "bin"       : False,
@@ -667,7 +745,8 @@ config = {
                                       "U": "Unclassified and Other",
                                 }
                             },
-                            "db"        : db_categories
+                            "db"        : db_categories,
+                            "post"      : [ add_to_db ]
     },
     "TAXDUMP_CITATIONS" : {
                             "parser"    : read_dump,
@@ -686,7 +765,9 @@ config = {
                                                                    # -- backslash character (" \\ ").
                                 [ "taxid_list", parse_taxid_list ],#-- list of node ids separated by a single space
                             ],
-                            "db"        : db_citations
+                            "db"        : db_citations,
+                            "db2"       : db_citations_taxid,
+                            "post"      : [ split_citations ]
     },
     "TAXDUMP_DELNODES"  : {
                             "parser"    : read_dump,
@@ -694,8 +775,9 @@ config = {
                             "header_map": [
                                 [ "tax_id", int ],#-- deleted node id
                             ],
-                            # "post": linearize
-                            "db"        : db_delnodes
+                            #"post"      : linearize
+                            "db"        : db_delnodes,
+                            "post"      : [ add_to_db ]
     },
     "TAXDUMP_DIVISION"  : {
                             "parser"    : read_dump,
@@ -706,11 +788,13 @@ config = {
                                 [ "division name"      ],#-- e.g. BCT, PLN, VRT, MAM, PRI...
                                 [ "comments"           ] #comments
                             ],
-                            "db"        : db_division
+                            "db"        : db_division,
+                            "post"      : [ add_to_db ]
     },
     "TAXDUMP_GC"        : {
                             "parser"    : read_ptr,
-                            "db"        : db_gc
+                            "db"        : db_gc,
+                            "post"      : [ add_to_db ]
     },
     "TAXDUMP_GENCODE"   : {
                             "parser"    : read_dump,
@@ -722,7 +806,8 @@ config = {
                                 [ "cde"                    ],#-- translation table for this genetic code
                                 [ "starts"                 ] #-- start codons for this genetic code
                             ],
-                            "db": db_gencode
+                            "db": db_gencode,
+                            "post"      : [ add_to_db ]
     },
     "TAXDUMP_MERGED"    : {
                             "parser"    : read_dump,
@@ -731,7 +816,8 @@ config = {
                                 [ "old_tax_id"    , int    ],#-- id of nodes which has been merged
                                 [ "new_tax_id"    , int    ] #-- id of nodes which is result of merging
                             ],
-                            "db": db_merged
+                            "db": db_merged,
+                            "post"      : [ add_to_db ]
     },
     "TAXDUMP_NAMES"     : {
                             "parser"    : read_dump,
@@ -743,7 +829,8 @@ config = {
                                 [ "name class"                         ] #-- (synonym, common name, ...)
                                 #[ "name class" , holders["name class"] ] #-- (synonym, common name, ...)
                             ],
-                            "db": db_names
+                            "db": db_names,
+                            "post"      : [ add_to_db ]
     },
     "TAXDUMP_NODES"     : {
                             "parser"    : read_dump,
@@ -764,7 +851,8 @@ config = {
                                 [ "hidden subtree root flag"     , parse_flag      ],#-- 1 if this subtree has no sequence data yet
                                 [ "comments"                                       ] #-- free-text comments and citations
                             ],
-                            "db": db_nodes
+                            "db": db_nodes,
+                            "post"      : [ add_to_db ]
     }
 }
 

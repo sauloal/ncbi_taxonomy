@@ -1,0 +1,167 @@
+CREATE TABLE nodes (
+	tax_id INTEGER NOT NULL, 
+	parent_tax_id INTEGER, 
+	rank VARCHAR(10), 
+	embl_code VARCHAR(10), 
+	division_id INTEGER, 
+	inherited_div_flag BOOLEAN, 
+	genetic_code_id INTEGER, 
+	inherited_gc_flag BOOLEAN, 
+	mitochondrial_genetic_code_id INTEGER, 
+	inherited_mgc_flag BOOLEAN, 
+	genbank_hidden_flag BOOLEAN, 
+	hidden_subtree_root_flag BOOLEAN, 
+	comments VARCHAR(100), 
+	PRIMARY KEY (tax_id), 
+	FOREIGN KEY(parent_tax_id) REFERENCES nodes (tax_id), 
+	CHECK (inherited_div_flag IN (0, 1)), 
+	CHECK (inherited_gc_flag IN (0, 1)), 
+	CHECK (inherited_mgc_flag IN (0, 1)), 
+	CHECK (genbank_hidden_flag IN (0, 1)), 
+	CHECK (hidden_subtree_root_flag IN (0, 1))
+);
+CREATE INDEX ix_nodes_mitochondrial_genetic_code_id ON nodes (mitochondrial_genetic_code_id);
+CREATE INDEX ix_nodes_division_id ON nodes (division_id);
+CREATE INDEX ix_nodes_parent_tax_id ON nodes (parent_tax_id);
+CREATE INDEX ix_nodes_genetic_code_id ON nodes (genetic_code_id);
+CREATE INDEX ix_nodes_rank ON nodes (rank);
+CREATE TABLE gc (
+	id INTEGER NOT NULL, 
+	name VARCHAR(10), 
+	name2 VARCHAR(10), 
+	base1 VARCHAR(100), 
+	base2 VARCHAR(100), 
+	base3 VARCHAR(100), 
+	ncbieaa VARCHAR(100), 
+	sncbieaa VARCHAR(100), 
+	PRIMARY KEY (id)
+);
+CREATE TABLE coll (
+	inst_code VARCHAR(10) NOT NULL, 
+	inst_type VARCHAR(5), 
+	inst_name VARCHAR(100), 
+	PRIMARY KEY (inst_code)
+);
+CREATE INDEX ix_coll_inst_type ON coll (inst_type);
+CREATE TABLE ccode (
+	coll_id INTEGER NOT NULL, 
+	inst_id INTEGER, 
+	coll_name VARCHAR(50), 
+	coll_code VARCHAR(10), 
+	coll_size INTEGER, 
+	collection_type VARCHAR(50), 
+	coll_status BOOLEAN, 
+	coll_url VARCHAR(150), 
+	comments VARCHAR(200), 
+	qualifier_type VARCHAR(50), 
+	PRIMARY KEY (coll_id), 
+	CHECK (coll_status IN (0, 1))
+);
+CREATE INDEX ix_ccode_collection_type ON ccode (collection_type);
+CREATE INDEX ix_ccode_inst_id ON ccode (inst_id);
+CREATE INDEX ix_ccode_coll_code ON ccode (coll_code);
+CREATE TABLE merged (
+	old_tax_id INTEGER NOT NULL, 
+	new_tax_id INTEGER, 
+	PRIMARY KEY (old_tax_id)
+);
+CREATE INDEX ix_merged_new_tax_id ON merged (new_tax_id);
+CREATE TABLE citations (
+	cit_id INTEGER NOT NULL, 
+	cit_key VARCHAR(300), 
+	pubmed_id INTEGER, 
+	medline_id INTEGER, 
+	url VARCHAR(300), 
+	text VARCHAR(300), 
+	PRIMARY KEY (cit_id)
+);
+CREATE INDEX ix_citations_pubmed_id ON citations (pubmed_id);
+CREATE INDEX ix_citations_medline_id ON citations (medline_id);
+CREATE TABLE gencode (
+	genetic_code_id INTEGER NOT NULL, 
+	abbreviation VARCHAR(10), 
+	name VARCHAR(10), 
+	cde VARCHAR(100), 
+	starts VARCHAR(100), 
+	PRIMARY KEY (genetic_code_id)
+);
+CREATE TABLE cowner (
+	inst_id INTEGER NOT NULL, 
+	inst_code VARCHAR(10), 
+	aka VARCHAR(10), 
+	inst_name VARCHAR(100), 
+	country VARCHAR(3), 
+	address VARCHAR(200), 
+	phone VARCHAR(50), 
+	fax VARCHAR(50), 
+	record_source VARCHAR(20), 
+	home_url VARCHAR(200), 
+	url_rule VARCHAR(20), 
+	comments VARCHAR(200), 
+	collection_type VARCHAR(50), 
+	qualifier_type VARCHAR(50), 
+	unique_name VARCHAR(10), 
+	PRIMARY KEY (inst_id)
+);
+CREATE INDEX ix_cowner_inst_code ON cowner (inst_code);
+CREATE INDEX ix_cowner_qualifier_type ON cowner (qualifier_type);
+CREATE INDEX ix_cowner_unique_name ON cowner (unique_name);
+CREATE INDEX ix_cowner_collection_type ON cowner (collection_type);
+CREATE TABLE delnodes (
+	tax_id INTEGER NOT NULL, 
+	PRIMARY KEY (tax_id)
+);
+CREATE TABLE icode (
+	inst_id INTEGER NOT NULL, 
+	inst_code VARCHAR(10), 
+	unique_name VARCHAR(10), 
+	PRIMARY KEY (inst_id)
+);
+CREATE TABLE taxid_prot (
+	gi INTEGER NOT NULL, 
+	taxid INTEGER, 
+	PRIMARY KEY (gi), 
+	FOREIGN KEY(taxid) REFERENCES nodes (tax_id)
+);
+CREATE INDEX ix_taxid_prot_taxid ON taxid_prot (taxid);
+CREATE TABLE citations_taxid (
+	cit_id INTEGER NOT NULL, 
+	taxid INTEGER NOT NULL, 
+	PRIMARY KEY (cit_id, taxid), 
+	FOREIGN KEY(cit_id) REFERENCES citations (cit_id), 
+	FOREIGN KEY(taxid) REFERENCES nodes (tax_id)
+);
+CREATE INDEX ix_citations_taxid_cit_id ON citations_taxid (cit_id);
+CREATE INDEX ix_citations_taxid_taxid ON citations_taxid (taxid);
+CREATE TABLE division (
+	division_id INTEGER NOT NULL, 
+	division_cde VARCHAR(10), 
+	division_name VARCHAR(15), 
+	comments VARCHAR(100), 
+	PRIMARY KEY (division_id), 
+	FOREIGN KEY(division_id) REFERENCES nodes (division_id)
+);
+CREATE TABLE categories (
+	top_level_category VARCHAR(20), 
+	species_level_taxid INTEGER, 
+	taxid INTEGER NOT NULL, 
+	PRIMARY KEY (taxid), 
+	FOREIGN KEY(species_level_taxid) REFERENCES nodes (tax_id), 
+	FOREIGN KEY(taxid) REFERENCES nodes (tax_id)
+);
+CREATE INDEX ix_categories_species_level_taxid ON categories (species_level_taxid);
+CREATE TABLE names (
+	tax_id INTEGER NOT NULL, 
+	name_txt VARCHAR(10) NOT NULL, 
+	unique_name VARCHAR(10), 
+	name_class VARCHAR(10) NOT NULL, 
+	PRIMARY KEY (tax_id, name_txt, name_class), 
+	FOREIGN KEY(tax_id) REFERENCES nodes (tax_id)
+);
+CREATE TABLE taxid_nuc (
+	gi INTEGER NOT NULL, 
+	taxid INTEGER, 
+	PRIMARY KEY (gi), 
+	FOREIGN KEY(taxid) REFERENCES nodes (tax_id)
+);
+CREATE INDEX ix_taxid_nuc_taxid ON taxid_nuc (taxid);

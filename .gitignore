@@ -3,5 +3,6 @@
 *.dmp
 *.pyc
 *.db
+*.sql
 taxdump/
 taxcat/
