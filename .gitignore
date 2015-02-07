@@ -4,5 +4,7 @@
 *.pyc
 *.db
 *.sql
+*.tsv
+*.tables
 taxdump/
 taxcat/

@@ -1,14 +1,20 @@
 import os
-from subprocess import call
+from collections import namedtuple
+
 
 import sqlalchemy
-from sqlalchemy                 import create_engine
-from sqlalchemy.orm             import sessionmaker
-from sqlalchemy.orm             import relationship, backref
-from sqlalchemy                 import Table, Column, Integer, String, Boolean
-from sqlalchemy                 import MetaData, ForeignKey
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.engine          import reflection
+from sqlalchemy                   import create_engine
+from sqlalchemy.orm               import sessionmaker, scoped_session
+from sqlalchemy.orm               import relationship, backref
+from sqlalchemy                   import Table, Column, Integer, String, Boolean, Index
+from sqlalchemy                   import MetaData, ForeignKey
+from sqlalchemy.ext.declarative   import declarative_base
+from sqlalchemy.engine            import reflection
+from sqlalchemy.dialects          import mysql, sqlite
+from sqlalchemy.engine.interfaces import Compiled
+from sqlalchemy.sql.expression    import insert
+from sqlalchemy.sql               import compiler
+
 from sqlalchemy.schema import (
     MetaData,
     Table,
@@ -25,26 +31,76 @@ SQL_FILE_NAME = "ncbi_taxonomy.db"
 
 Base      = declarative_base()
 session   = None
+database  = None
+indexes   = {}
 
-def create():
+
+
+def dump_all(tables=None):
+    dump_schema()
+    dump_tables()
+    dump_sql()
+    if tables is not None:
+        dump_tsv(tables)
+
+def dump_schema():
+    print "dumping schema"
+    os.system( "echo .schema | sqlite3 %s > %s.schema"  % (SQL_FILE_NAME,SQL_FILE_NAME) )
+
+def dump_tsv(tables):
+    print "dumping tsv"
+    for table in tables:
+        print "dumping tsv", table, "to %(file_name)s_%(table_name)s.tsv" % { "file_name": SQL_FILE_NAME, "table_name": table }
+        os.system( 'echo ".header on\n.mode tabs\n.output %(file_name)s_%(table_name)s.tsv\nSELECT * FROM %(table_name)s;" | sqlite3 %(file_name)s >/dev/null' % { "file_name": SQL_FILE_NAME, "table_name": table } )
+
+def dump_tables():
+    print "dumping tables"
+    os.system( "echo .tables | sqlite3 %s > %s.tables"  % (SQL_FILE_NAME,SQL_FILE_NAME) )
+
+def dump_sql():
+    print "dumping sql"
+    os.system( "echo .dump | sqlite3 %s > %s.sql"  % (SQL_FILE_NAME,SQL_FILE_NAME) )
+
+
+
+
+def create_db():
     if os.path.exists(SQL_FILE_NAME):
         os.remove(SQL_FILE_NAME)
     
-    engine   = create_engine('sqlite:///'+SQL_FILE_NAME  , echo=SQL_ECHO)
-    
+    #loaddb(SQL_FILE_NAME, echo=False)
+    global database
+    #database        = loaddb(db_data_name=SQL_FILE_NAME)
+    database        = db_controller(SQL_FILE_NAME, Base)
+
     global session
-    Session   = sessionmaker(bind=engine, autoflush=True, autocommit=False, expire_on_commit=True)
-    session   = Session()
-    metadata  = MetaData()
-    inspector = reflection.Inspector.from_engine(engine)
+    session = database.get_session()
+    print 'session', session
+
+    return database
+
+    #engine   = create_engine('sqlite:///'+SQL_FILE_NAME  , echo=SQL_ECHO)
     
-    Base.metadata.create_all(engine)
+    #global session
+    #Session   = sessionmaker(bind=engine, autoflush=True, autocommit=False, expire_on_commit=True)
+    #session   = Session()
+    #metadata  = MetaData()
+    #inspector = reflection.Inspector.from_engine(engine)
     
-    for t in metadata.sorted_tables:
-        print t.name
+    #Base.metadata.create_all(engine)
     
-    os.system( "echo .schema | sqlite3 %s > %s.schema"  % (SQL_FILE_NAME,SQL_FILE_NAME) )
+    #for t in metadata.sorted_tables:
+    #    print t.name
     
+
+
+    #os.system( "echo .schema | sqlite3 %s > %s.schema"  % (SQL_FILE_NAME,SQL_FILE_NAME) )
+    
+    #for table_name in inspector.get_table_names():
+    #    print "dropping foreign keys", table_name
+    #    for index in inspector.get_indexes(table_name):
+    #        print " index", index
+
     #session.execute ('PRAGMA foreign_keys = ON;')
     #session.execute ('PRAGMA foreign_keys=OFF')
     #session.commit()
@@ -55,6 +111,448 @@ def create():
     #session.execute(table1.insert(), col1=7, col2='this is some data')
     #trans.commit()
     #session.close()
+
+
+
+
+
+
+
+#class DataBase(Base):
+#    __abstract__ = True
+#    metadata = MetaData()
+
+
+class loaddb(object):
+    def __init__(self, db_data_name=None, db_index_name=None, db_meta_name=None, dbtype='SQLITE', echo=False, synchronous=False, inmemory=True, sql_user=None, sql_pass=None, sql_host=None, sql_port=None, sql_sock=None):
+        print "creating engine", db_data_name
+
+        #http://stackoverflow.com/questions/8831568/sqlalchemy-declarative-model-with-multiple-database-sharding
+
+        self.dbtype        = dbtype
+        self.db_data_name  = db_data_name
+        self.db_index_name = db_index_name
+        self.db_meta_name  = db_meta_name
+        self.db_data       = None
+        self.db_index      = None
+        self.db_meta       = None
+
+        if self.db_data_name:
+            self.db_data  = db_controller( db_data_name , Base     , dbtype='SQLITE', echo=echo, synchronous=synchronous, inmemory=inmemory, sql_user=sql_user, sql_pass=sql_pass, sql_host=sql_host, sql_port=sql_port, sql_sock=sql_sock )
+            #self.db_data  = db_controller( db_data_name , DataBase , dbtype='SQLITE', echo=echo, synchronous=synchronous, inmemory=inmemory, sql_user=sql_user, sql_pass=sql_pass, sql_host=sql_host, sql_port=sql_port, sql_sock=sql_sock )
+
+        if self.db_index_name:
+            self.db_index = db_controller( db_index_name, IndexBase, dbtype='SQLITE', echo=echo, synchronous=synchronous, inmemory=inmemory, sql_user=sql_user, sql_pass=sql_pass, sql_host=sql_host, sql_port=sql_port, sql_sock=sql_sock )
+
+        if self.db_meta_name:
+            self.db_meta  = db_controller( db_meta_name , MetaBase , dbtype='SQLITE', echo=echo, synchronous=synchronous, inmemory=inmemory, sql_user=sql_user, sql_pass=sql_pass, sql_host=sql_host, sql_port=sql_port, sql_sock=sql_sock )
+
+        self.dbs = {
+            'data' : self.db_data,
+            'index': self.db_index,
+            'meta' : self.db_meta
+        }
+
+        print "finished"
+
+    def list_dbs(self):
+        return sorted([ x for x in self.dbs.keys() if self.dbs[x] is not None ])
+
+    def get_dbs(self):
+        dbkeys = self.list_dbs()
+        print dbkeys
+        res    = namedtuple(*dbkeys)
+        print res
+        return res( [ self.dbs[x] for x in dbkeys ])
+
+    def get_db(self, dbname):
+        db = self.dbs.get(dbname, None)
+        if db:
+            return db
+
+    def get_engines(self):
+        dbkeys = self.list_dbs
+        res    = namedtuple(*dbkeys)
+        return res( [ self.dbs[x].get_engine() for x in dbkeys ])
+
+    def get_engine(self, dbname):
+        db = self.dbs.get(dbname, None)
+        if db:
+            return db.get_engine()
+
+    def get_sessions(self):
+        dbkeys = self.list_dbs()
+        #res    = namedtuple(*dbkeys)
+        #return res( [ self.dbs[x].get_session() for x in dbkeys ])
+        return [ self.dbs[x].get_session() for x in dbkeys ]
+
+    def get_session(self, dbname):
+        db = self.dbs.get(dbname, None)
+        if db:
+            return db.get_session()
+
+    def get_or_update_data(self, dbname, cls, att, val):
+        db = self.dbs.get(dbname, None)
+        if db:
+            return db.get_or_update(cls, att, val)
+
+    def list_indexes(self, dbname, table_name=None):
+        db = self.dbs.get(dbname, None)
+        if db:
+            return db.list_indexes(table_name=table_name)
+
+    def drop_indexes(self, dbname, table_name=None):
+        db = self.dbs.get(dbname, None)
+        if db:
+            return db.drop_indexes(table_name=table_name)
+
+    def drop_index(self, dbname, table_name, info):
+        db = self.dbs.get(dbname, None)
+        if db:
+            db.drop_index(table_name, info)
+
+    def drop_all_indexes(self):
+        indexes = {}
+        print "drop_all_indexes"
+        for dbname in self.list_dbs():
+            print "drop_all_indexes", dbname
+            indexes[dbname] = []
+            #for index in self.list_indexes(dbname):
+            #    print "drop_all_indexes", dbname, "index", index
+            #    indexes[dbname].append( index )
+            #    self.drop_indexes(dbname)
+            indexes[dbname] = self.drop_indexes(dbname)
+        return indexes
+
+    def restore_all_indexes(self):
+        print "restore_all_indexes"
+        for dbname in self.list_dbs():
+            print "restore_all_indexes", dbname
+            db = self.dbs.get(dbname, None)
+            if db:
+                db.restore_indexes()
+    
+    def add_indexes(self, dbname, indexes, table_name=None):
+        db = self.dbs.get(dbname, None)
+        if db:
+            return db.add_indexes(indexes, table_name=table_name)
+
+    def use(self, dbname):
+        db = self.dbs.get(dbname, None)
+        if db:
+            return db.use()
+
+class db_controller(object):
+    def __init__(self, db_name, base, dbtype='SQLITE', echo=False, synchronous=False, inmemory=True, sql_user=None, sql_pass=None, sql_host=None, sql_port=None, sql_sock=None):
+        self.cache   = {}
+        self.dbtype  = dbtype
+        self.db_name = db_name
+        self.Base    = base
+
+        self._last_dropped_indexes = None
+
+        if self.dbtype == 'MYSQL':
+            MYSQL_NAME = os.environ['MYSQL_NAME'] if 'MYSQL_NAME' in os.environ else None
+            MYSQL_USER = os.environ['MYSQL_USER'] if 'MYSQL_USER' in os.environ else 'root'
+            MYSQL_PASS = os.environ['MYSQL_PASS'] if 'MYSQL_PASS' in os.environ else None
+            MYSQL_HOST = os.environ['MYSQL_HOST'] if 'MYSQL_HOST' in os.environ else '127.0.0.1'
+            MYSQL_PORT = os.environ['MYSQL_PORT'] if 'MYSQL_PORT' in os.environ else '3306'
+            MYSQL_SOCK = os.environ['MYSQL_SOCK'] if 'MYSQL_SOCK' in os.environ else None
+
+            self.dialect  = mysql
+
+            if sql_user:
+                MYSQL_USER = sql_user
+            if sql_pass:
+                MYSQL_PASS = sql_pass
+            if sql_host:
+                MYSQL_HOST = sql_host
+            if sql_port:
+                MYSQL_PORT = sql_port
+            if sql_sock:
+                MYSQL_SOCK = sql_sock
+
+            if MYSQL_SOCK:
+                self.sql_add = 'mysql:///?unix_socket=%(mysql_sock)s' % {
+                    'mysql_user': str(MYSQL_USER),
+                    'mysql_pass': str(MYSQL_PASS),
+                    'mysql_host': '127.0.0.1',
+                    'mysql_sock': MYSQL_SOCK,
+                    'mysql_db'  : self.db_name }
+
+                print "sql add", self.sql_add
+
+                if not all([MYSQL_USER, MYSQL_PASS]):
+                    print "mysql not fully configured"
+                    sys.exit(1)
+
+            else:
+                if MYSQL_NAME:
+                    self.db_name = MYSQL_NAME + '/' + self.db_name
+
+                self.sql_add = 'mysql://%(mysql_user)s:%(mysql_pass)s@%(mysql_host)s:%(mysql_port)s/%(mysql_db)s' % {
+                    'mysql_user': str(MYSQL_USER),
+                    'mysql_pass': str(MYSQL_PASS),
+                    'mysql_host': str(MYSQL_HOST),
+                    'mysql_port': str(MYSQL_PORT),
+                    'mysql_db'  : self.db_name }
+
+                print "sql add", self.sql_add
+
+                if not all([MYSQL_USER, MYSQL_PASS, MYSQL_HOST, MYSQL_PORT]):
+                    print "mysql not fully configured"
+                    sys.exit(1)
+
+
+        elif self.dbtype == 'SQLITE':
+            self.sql_add  = 'sqlite:///' + self.db_name
+            self.dialect  = sqlite
+
+        else:
+            print "unknown database", self.dbtype
+            sys.exit(1)
+
+
+
+
+        print "creating session"
+        self.engine  = create_engine(self.sql_add, echo=echo)
+        self.Session = scoped_session( sessionmaker(bind=self.engine, autocommit=False) )#, autoflush=False, expire_on_commit=False)
+        self.session = self.Session()
+
+
+
+        if self.sql_add == 'sqlite:///:memory:' or self.dbtype == 'MYSQL' or not os.path.exists(self.db_name):
+            if self.dbtype == 'MYSQL':
+                try:
+                    self.engine.execute("DROP DATABASE " + self.db_name) #create db
+                except:
+                    pass
+                print "CREATING DATABASE"
+                self.engine.execute("CREATE DATABASE " + self.db_name) #create db
+                print "SELECTING DATABASE"
+                self.engine.execute("USE " + self.db_name) # select new db
+
+            print "creating database"
+            self.Base.metadata.create_all( self.engine )
+        else:
+            print "NOT creating database"
+
+
+
+
+        if self.dbtype == 'MYSQL':
+            print "SELECTING DATABASE"
+            self.session.execute("USE " + self.db_name) # select new db
+
+
+        if self.dbtype == 'SQLITE':
+            if not synchronous:
+                self.engine.execute("PRAGMA synchronous = OFF")
+
+            if inmemory:
+                #self.session.execute("PRAGMA journal_mode = OFF")
+                #self.session.execute("PRAGMA journal_mode = WAL")
+                self.engine.execute("PRAGMA journal_mode = MEMORY")
+
+            #self.session.execute("PRAGMA locking_mode = EXCLUSIVE;" )
+            self.session.execute("PRAGMA temp_store = MEMORY;"       )
+            self.session.execute("PRAGMA count_changes = OFF;"       )
+            self.session.execute("PRAGMA PAGE_SIZE = 40960;"         )
+            self.session.execute("PRAGMA default_cache_size=7000000;")
+            self.session.execute("PRAGMA cache_size=7000000;"        )
+            self.session.execute("PRAGMA compile_options;"           )
+
+            self.meta    = MetaData()
+            self.meta.reflect(bind=self.engine)
+            self.insp    = reflection.Inspector.from_engine( self.engine )
+
+
+    def use(self):
+        if self.dbtype == 'MYSQL':
+            self.session.execute("USE " + self.db_name) # select new db
+
+    def get_session(self):
+        self.use()
+        return self.session
+
+    def get_engine(self):
+        return self.engine
+
+    def get_or_update(self, cls, att, val):
+        if cls not in self.cache:
+            self.cache[ cls ] = {}
+
+        ccache = self.cache[ cls ]
+        ckey   = (att, val)
+        res    = ccache.get( ckey, None )
+
+        if res is None:
+            #print "get_or_update", att, val, 'NOT IN CACHE'
+            res = self.session.query( cls ).filter(getattr(cls, att) == val).first()
+            if res is None:
+                #print "get_or_update", att, val, 'NOT IN CACHE', 'NOT IN DB'
+                res = cls(**{att: val})
+                self.session.add( res )
+                self.session.commit()
+                self.session.flush()
+            ccache[ ckey ] = res
+
+        else:
+            #print "get_or_update", att, val, 'IN CACHE'
+            pass
+
+        return res
+
+    def get_tables_names(self):
+        return self.Base.metadata.sorted_tables
+
+
+    def list_indexes(self, table_name=None):
+        #http://stackoverflow.com/questions/5605019/listing-indices-using-sqlalchemy
+        indexes = {}
+
+        for name in sorted(self.insp.get_table_names()):
+            if table_name is not None and table_name != name:
+                continue
+
+            if name not in indexes:
+                indexes[ name ] = []
+
+            for index in sorted(self.insp.get_indexes(name)):
+                print name, index
+                indexes[ name ].append( index )
+
+        return indexes
+
+    def drop_indexes(self, table_name=None):
+        self.session.execute ('PRAGMA foreign_keys=OFF')
+        self.session.commit()
+
+        indexes = self.list_indexes(table_name=table_name)
+        for tbl in indexes:
+            for nfo in indexes[ tbl ]:
+                self.drop_index( tbl, nfo )
+        self._last_dropped_indexes = indexes
+        return indexes
+
+    def restore_indexes(self):
+        self.session.execute ('PRAGMA foreign_keys = ON;')
+        self.session.commit()
+
+        indexes = self._last_dropped_indexes
+        #for tbl in indexes:
+        #    for nfo in indexes[ tbl ]:
+        #        self.drop_index( tbl, nfo )
+        self.add_indexes(indexes)
+
+    def drop_index(self, table_name, info):
+        #coords {'unique': 0, 'name': u'ix_coords_info_FQ', 'column_names': [u'info_FQ']}
+        id_name    = info['name'        ]
+        id_columns = info['column_names']
+
+        print "droping index", id_name
+
+        Index(id_name).drop( self.engine )
+
+    def add_indexes(self, indexes, table_name=None):
+        for tbl in sorted(indexes):
+            if table_name is not None and table_name != tbl:
+                continue
+
+            for nfo in sorted(indexes[ tbl ]):
+                self.add_index( tbl, nfo )
+
+    def add_index(self, table_name, info ):
+        id_name    = info['name'        ]
+        id_columns = info['column_names']
+
+        print "adding index", id_name
+
+        table   = self.meta.tables[table_name]
+        columns = table.columns
+        colsO = []
+        for coln in id_columns:
+            col  = columns[ coln ]
+            colsO.append( col )
+        Index(id_name, *colsO).create( self.engine )
+
+
+    #
+    #
+    #def list_indexes(self, table_name=None):
+    #    #http://stackoverflow.com/questions/5605019/listing-indices-using-sqlalchemy
+    #    indexes = {}
+    #
+    #    for name in sorted(self.insp.get_table_names()):
+    #        if table_name is not None and table_name != name:
+    #            continue
+    #
+    #        if name not in indexes:
+    #            indexes[ name ] = []
+    #
+    #        for index in sorted(self.insp.get_indexes(name)):
+    #            print name, index
+    #            indexes[ name ].append( index )
+    #
+    #    return indexes
+    #
+    #def drop_indexes(self, table_name=None):
+    #    indexes = self.list_indexes(table_name=table_name)
+    #    for tbl in indexes:
+    #        for nfo in indexes[ tbl ]:
+    #            self.drop_index( tbl, nfo )
+    #    self._last_dropped_indexes = indexes
+    #    return indexes
+    #
+    #def restore_indexes(self):
+    #    indexes = self._last_dropped_indexes
+    #    #for tbl in indexes:
+    #    #    for nfo in indexes[ tbl ]:
+    #    #        self.drop_index( tbl, nfo )
+    #    self.add_indexes(indexes)
+    #
+    #def drop_index(self, table_name, info):
+    #    #coords {'unique': 0, 'name': u'ix_coords_info_FQ', 'column_names': [u'info_FQ']}
+    #    id_name    = info['name'        ]
+    #    id_columns = info['column_names']
+    #
+    #    print "droping index", id_name
+    #
+    #    Index(id_name).drop( self.engine )
+    #
+    #def add_indexes(self, indexes, table_name=None):
+    #    for tbl in sorted(indexes):
+    #        if table_name is not None and table_name != tbl:
+    #            continue
+    #
+    #        for nfo in sorted(indexes[ tbl ]):
+    #            self.add_index( tbl, nfo )
+    #
+    #def add_index(self, table_name, info ):
+    #    id_name    = info['name'        ]
+    #    id_columns = info['column_names']
+    #
+    #    print "adding index", id_name
+    #
+    #    table   = self.meta.tables[table_name]
+    #    columns = table.columns
+    #    colsO = []
+    #    for coln in id_columns:
+    #        col  = columns[ coln ]
+    #        colsO.append( col )
+    #    Index(id_name, *colsO).create( self.engine )
+
+
+
+
+
+
+
+
+
+
+
 
 
 class db_ccode(Base):
@@ -279,7 +777,6 @@ class db_taxid_prot(Base):
             self.tax_id, #1608297,
         )
 
-
 class db_citations(Base):
     __tablename__ = 'citations'
     cit_id        = Column(Integer    , primary_key=True            ) #5,
@@ -432,7 +929,6 @@ class db_delnodes(Base):
         )
     #TAXDUMP_DELNODES(tax_id=1608297)
 
-create()
 
 #ICODE(inst_id=1, inst_code='AEI', unique_name='AEI')
 #CATEGORIES(top_level_category='A', species_level_taxid=1462428, taxid=1462428)
@@ -467,33 +963,47 @@ create()
 
 
 #https://bitbucket.org/zzzeek/sqlalchemy/wiki/UsageRecipes/DropEverything
-def drop_foreign_keys():
-    print "dropping foreign keys"
-    tbs     = []
-    all_fks = []
-    
-    for table_name in inspector.get_table_names():
-        print "dropping foreign keys", table_name
-        fks = []
-        for fk in inspector.get_foreign_keys(table_name):
-            print "dropping foreign keys", table_name, "name", fk
-            #if not fk['name']:
-            #    continue
-            
-            #print "dropping foreign keys", table_name, "name", fk['name']
-            
-            fks.append(
-                fk
-                #ForeignKeyConstraint((),(),name=fk['name'])
-                )
-        t = Table(table_name,metadata,*fks)
-        tbs.append(t)
-        all_fks.extend(fks)
-    
-    for fkc in all_fks:
-        session.execute(DropConstraint(fkc))
-        
-    session.commit()
+#def drop_foreign_keys():
+#    print "dropping foreign keys"
+#    tbs     = []
+#    all_fks = []
+#    
+#    for table_name in inspector.get_table_names():
+#        print "dropping foreign keys", table_name
+#        fks = []
+#        for fk in inspector.get_foreign_keys(table_name):
+#            print "dropping foreign keys", table_name, "name", fk
+#            #if not fk['name']:
+#            #    continue
+#            
+#            #print "dropping foreign keys", table_name, "name", fk['name']
+#            
+#            fks.append(
+#                fk
+#                #ForeignKeyConstraint((),(),name=fk['name'])
+#                )
+#        t = Table(table_name,metadata,*fks)
+#        tbs.append(t)
+#        all_fks.extend(fks)
+#    
+#    for fkc in all_fks:
+#        session.execute(DropConstraint(fkc))
+#        
+#    session.commit()
+
+#def compile_query(query):
+#    dialect   = session.bind.dialect
+#    statement = query.statement
+#    comp      = compiler.SQLCompiler(dialect, statement)
+#    comp.compile()
+#    enc       = dialect.encoding
+#    params    = {}
+#    #for k,v in comp.params.iteritems():
+#    #    if isinstance(v, unicode):
+#    #        v = v.encode(enc)
+#    #    params[k] = sqlescape(v)
+#    return (comp.string.encode(enc) % params).decode(enc)
+#    #return comp.string
 
 
 #[ "CCODE"            , "inst_id"                       ],

@@ -12,10 +12,10 @@ import gzip
 #from copy import copy, deepcopy
 from itertools import izip
 
-from pprint import pformat, pprint
+from pprint      import pformat, pprint
 from collections import namedtuple, defaultdict
 
-from parser_SQL_struct import *
+import parser_SQL_struct
 
 #      save 2 1    load 2 1    save latest 1   load latest 1   load no pickle   save json 1   read json
 #real  4m30.067s   5m27.524s   4m42.931s       5m29.587s       2m54.808s        7m47.482s     7m09.099s
@@ -25,9 +25,9 @@ from parser_SQL_struct import *
 
 
 MAX_READ_LINES   = None   # max number of lines to read
-MAX_READ_LINES   = 5
+#MAX_READ_LINES   = 100000
 
-DUMP_EVERY       = 25000
+DUMP_EVERY       = 250000
 
 
 #
@@ -231,8 +231,9 @@ def read_dump(fn, cfg):
             cfg["convertersA"].append(  v )
 
 
-    desc = cfg["desc"] if "desc" in cfg else None
+    desc   = cfg["desc"] if "desc" in cfg else None
 
+    during = cfg["during"] if "during" in cfg else None
 
     headerI     = {}
     read_header = True
@@ -278,10 +279,11 @@ def read_dump(fn, cfg):
         else:
             ln += 1
 
+            if ( DUMP_EVERY is not None ) and ( ln % DUMP_EVERY == 0 ):
+                print " ... %8d" % (ln)
+
             # print line
             cols = line.split(sep)
-            cols = [x.strip("\t").strip("\t|").strip() for x in cols]
-            cols = [x if x != '' else None for x in cols]
 
             if DEBUG and ln <= DEBUG_LINES:
                 print "    line o cols", ln, cols
@@ -292,28 +294,48 @@ def read_dump(fn, cfg):
                 print cols
                 print cfg["header"]
                 sys.exit(1)
-
-            dcols = [None] * len(cols)
-
-            for p in xrange(len(cols)):
-                dcols[p] = cfg["convertersA"][p](cols[p])
+                
+            cols = [ x.strip("\t").strip("\t|").strip()                  for   x in           cols  ]
+            cols = [ x if x != '' else None                              for   x in           cols  ]
+            cols = [ cfg["convertersA"][p](x) if x is not None else None for p,x in enumerate(cols) ]
 
             if desc is not None:
-                # print "val", val
-                for data_key in desc:
-                    # print " desc", data_key,
-                    data_pos        = headerI[data_key]
-                    # print "pos", data_pos,
-                    data            = dcols[ data_pos ]
-                    # print "data", data,
-                    ndata           = desc[ data_key ][ data ]
-                    # print "ndata", ndata
-                    dcols[ data_pos ] = ndata
+                cols = [ desc[cfg["header"][data_pos]][cols[data_pos]] if cfg["header"][data_pos] in desc else cols[data_pos] for data_pos in xrange(len(cols)) ]
 
             if DEBUG and ln <= DEBUG_LINES:
-                print "    line d cols", ln, dcols
+                print "    line d cols", ln, cols
 
-            cfg["data"].append( tuple(dcols) )
+
+            if during is None:
+                cfg["data"].append( tuple(cols) )
+            else:
+                for d in during:
+                    d(cfg, cols)
+
+            #dcols = [None] * len(cols)
+            #
+            #for p in xrange(len(cols)):
+            #    if cols[p] is not None:
+            #        dcols[p] = cfg["convertersA"][p](cols[p])
+
+
+            #if desc is not None:
+            #    # print "val", val
+            #    for data_key in desc:
+            #        # print " desc", data_key,
+            #        data_pos        = headerI[data_key]
+            #        # print "pos", data_pos,
+            #        data            = dcols[ data_pos ]
+            #        # print "data", data,
+            #        ndata           = desc[ data_key ][ data ]
+            #        # print "ndata", ndata
+            #        dcols[ data_pos ] = ndata
+
+            #if DEBUG and ln <= DEBUG_LINES:
+            #    print "    line d cols", ln, dcols
+            #
+            #cfg["data"].append( tuple(dcols) )
+
 
             if DEBUG and ln == DEBUG_BREAK:
                 break
@@ -322,6 +344,13 @@ def read_dump(fn, cfg):
                 break
 
     print "  parsed", fn, ln, "lines"
+
+    if during is not None:
+        for d in during:
+            if hasattr(d, 'close'):
+                d.close()
+        
+
 
     if TO_NAMED_TUPLE:
         header_data_to_named_tuple(cfg)
@@ -439,6 +468,15 @@ name "Mold Mitochondrial; Protozoan Mitochondrial; Coelenterate
     else:
         list_of_hashes_to_header_data(cfg)
 
+
+
+
+
+
+
+
+
+
 def split_citations(cfg):
     ndata = {
         "header": ["cit_id", "taxid"],
@@ -471,17 +509,191 @@ def split_citations(cfg):
     add_to_db(cfg)
     add_to_db(ndata)
     
+class datagen(list):
+    def __init__(self, header, data, uniques):
+        self.header  = header
+        self.data    = data
+        self.uniques = uniques
+        self.n       = len(data)
+        self.num     = 0
+    
+    def __iter__(self):
+        return self
+    
+    def __next__(self):
+        return self.next()
+    
+    def next(self):
+        if self.num >= self.n:
+            print " ... %8d / %8d END" % (self.num, self.n)
+            self.num = 0
+            raise StopIteration()
+        
+        if ( DUMP_EVERY is not None ) and ( self.num % DUMP_EVERY == 0 ):
+            print " ... %8d / %8d" % (self.num, self.n)
+        
+        #for pval in xrange(len(self.data)):
+        v = self[self.num]
+        self.num += 1
+
+        if self.uniques is not None and len(self.uniques) > 0:
+            found = False
+            for u in self.uniques:
+                k = "_".join( [str(v[x.replace(" ", "_")]) for x in u] )
+                if k in self.uniques[u]:
+                    self.uniques[u][k] += 1
+                    print "duplicated register", v
+                    found = True
+                    
+                else:
+                    self.uniques[u][k] = 1
+
+            if found:
+                return self.next()
+        return v
+    
+    def __len__(self):
+        return self.n
+    
+    def __getitem__(self, pval):
+        vals = self.data[pval]
+        #print vals
+        v    = dict(izip(iter(self.header), iter(vals)))
+        return v
+    
+class add_to_db_rolling(object):
+    def __init__(self):
+        self.n     = 0
+        
+    def __call__(self, cfg, vals):
+        if self.n == 0:
+            self.db_table = cfg["db"      ]
+            self.name     = cfg["name"]
+            self.header   = [x.lower() for x in cfg["header"  ]]
+            self.uniques  = None
+            
+            if "_uniques" in cfg:
+                self.uniques  = {}
+                for x in cfg["_uniques"]:
+                    self.uniques[x] = {}
+    
+            self.session  = parser_SQL_struct.session
+            self.database = parser_SQL_struct.database
+            self.table    = self.db_table.__table__
+            self.insert   = self.table.insert(bind=self.database.engine)
+            self.insts    = []
+
+
+        v    = dict(izip(iter(self.header), iter(vals)))
+        if self.uniques is not None and len(self.uniques) > 0:
+            found = False
+            for u in self.uniques:
+                k = "_".join( [str(v[x.replace(" ", "_")]) for x in u] )
+                if k in self.uniques[u]:
+                    self.uniques[u][k] += 1
+                    print "duplicated register", v
+                    found = True
+                    
+                else:
+                    self.uniques[u][k] = 1
+            
+            if found:
+                return
+    
+        self.insts.append( v )
+        
+        if ( DUMP_EVERY is not None ) and ( self.n != 0 ) and ( self.n % DUMP_EVERY == 0 ):
+            #print "saving to sql db", self.name, "commiting", "%8d"%self.n,'...',
+            self.session.execute( self.insert, self.insts )
+            self.session.commit()
+            self.insts = []
+            #print "DONE"
+        
+        self.n += 1
+
+    def close(self):
+        print "saving to sql db", self.name, "final commit"
+        #print 'ADD ALL', session.add_all( insts )
+        #session.execute( insts )
+        if len(self.insts) > 0:
+            self.session.execute( self.insert, self.insts )
+            self.session.commit()
+            self.session.flush()
+            self.insts = []
+        print "saving to sql db", self.name, "finished"
+    
+        if self.uniques is not None:
+            print "duplicated registers"
+            for k in self.uniques:
+                print " offending key:", k
+                vals = self.uniques[k]
+                for v in [x for x in vals if vals[x] > 1]:
+                    print "  val:", v, vals[x]
+
 
 def add_to_db(cfg):
     print "saving to sql db", cfg["name"]
+
     db_table = cfg["db"      ]
     header   = [x.lower() for x in cfg["header"  ]]
+    data     = cfg["data"]
     uniques  = None
+    
     if "_uniques" in cfg:
         uniques  = {}
         for x in cfg["_uniques"]:
             uniques[x] = {}
 
+    session  = parser_SQL_struct.session
+    database = parser_SQL_struct.database
+    table    = db_table.__table__
+    insert   = table.insert(bind=database.engine)
+
+    
+    print "saving to sql db", cfg["name"], "converting to dict" 
+    insts = datagen(header, data, uniques)
+    #print len(insts), insts[0], insts[0].keys()
+    #for i,j in enumerate(insts):
+    #    print i,j 
+    
+    
+    print "saving to sql db", cfg["name"], "inserting" 
+    session.execute( insert, insts )
+    session.commit()
+    session.flush()
+    #insts = []
+    print "saving to sql db", cfg["name"], "finished"
+
+    if uniques is not None:
+        print "duplicated registers"
+        for k in uniques:
+            print " offending key:", k
+            vals = uniques[k]
+            for v in [x for x in vals if vals[x] > 1]:
+                print "  val:", v, vals[x]
+
+    
+def add_to_db4(cfg):
+    print "saving to sql db", cfg["name"]
+
+    db_table = cfg["db"      ]
+    header   = [x.lower() for x in cfg["header"  ]]
+
+    uniques  = None
+    
+    if "_uniques" in cfg:
+        uniques  = {}
+        for x in cfg["_uniques"]:
+            uniques[x] = {}
+
+    session  = parser_SQL_struct.session
+    database = parser_SQL_struct.database
+    table    = db_table.__table__
+    insert   = table.insert(bind=database.engine)
+
+    
+    print "saving to sql db", cfg["name"], "converting to dict" 
+    insts = []
     for pval in xrange(len(cfg["data"])):
         vals = cfg["data"][pval]
         #print vals
@@ -489,28 +701,118 @@ def add_to_db(cfg):
         if uniques is not None and len(uniques) > 0:
             found = False
             for u in uniques:
-                if v[u] in uniques[u]:
-                    uniques[u][v[u]] += 1
+                k = "_".join( [str(v[x.replace(" ", "_")]) for x in u] )
+                if k in uniques[u]:
+                    uniques[u][k] += 1
                     print "duplicated register", v
                     found = True
                     
                 else:
-                    uniques[u][v[u]] = 1
+                    uniques[u][k] = 1
+            if found:
+                continue
+    
+        insts.append( v )
+
+    print "saving to sql db", cfg["name"], "inserting" 
+    session.execute( insert, insts )
+    session.commit()
+    session.flush()
+    insts = []
+    print "saving to sql db", cfg["name"], "finished"
+
+    if uniques is not None:
+        print "duplicated registers"
+        for k in uniques:
+            print " offending key:", k
+            vals = uniques[k]
+            for v in [x for x in vals if vals[x] > 1]:
+                print "  val:", v, vals[x]
+
+
+def add_to_db2(cfg):
+    db_table = cfg["db"      ]
+    header   = [x.lower() for x in cfg["header"  ]]
+    parser_SQL_struct.session.bulk_insert_mappings(db_table, [ dict(izip(iter(header), iter(vals))) for vals in cfg["data"] ])
+
+
+def add_to_db3(cfg):
+    print "saving to sql db", cfg["name"]
+    db_table = cfg["db"      ]
+    header   = [x.lower() for x in cfg["header"  ]]
+    uniques  = None
+    
+    if "_uniques" in cfg:
+        uniques  = {}
+        for x in cfg["_uniques"]:
+            uniques[x] = {}
+
+    session  = parser_SQL_struct.session
+
+    database = parser_SQL_struct.database
+
+    table    = db_table.__table__
+
+    #insert = parser_SQL_struct.insert(table, inline=True)
+    insert = table.insert(bind=database.engine)
+    #insert = table.insert()
+
+    #print "insert", insert
+
+    insts = []
+    for pval in xrange(len(cfg["data"])):
+        vals = cfg["data"][pval]
+        #print vals
+        v    = dict(izip(iter(header), iter(vals)))
+        if uniques is not None and len(uniques) > 0:
+            found = False
+            for u in uniques:
+                k = "_".join( [str(v[x.replace(" ", "_")]) for x in u] )
+                if k in uniques[u]:
+                    uniques[u][k] += 1
+                    print "duplicated register", v
+                    found = True
+                    
+                else:
+                    uniques[u][k] = 1
             if found:
                 continue
             
-        register = db_table( **v )
-        #print register
+        #register = db_table( **v )
         #session.merge( register )
-        session.add( register )
+        #parser_SQL_struct.database.to_sql(register)
+        #parser_SQL_struct.database.get_compiler(register)
+        #parser_SQL_struct.session.add( register )
+        #print "insert values", str( session.execute( insert.values(vals) ) )
+        #print "insert values", str( insert.values(vals).compile().statement._compiler(parser_SQL_struct.sqlite) )
+        #ins  = insert.values( vals )#.compile(dialect=parser_SQL_struct.session.bind.dialect, column_keys=header)#, compile_kwargs={"literal_binds": True})
+        #print parser_SQL_struct.compile_query(ins)
+        #param_str = repr(getattr(ins, 'params', {}))
+        #print str( ins ).encode('utf-8')
+        #res = session.execute( ins )
+        #print dir(res), res.keys()
+        #print str( session.execute( insert, v ) )
+        #register = insert.values(vals)#.compile(dialect=parser_SQL_struct.session.bind.dialect, column_keys=header)
+        #session.execute( register )
+        register = v
+        
+        insts.append( register )
         
         if ( DUMP_EVERY is not None ) and ( pval != 0 ) and ( pval % DUMP_EVERY == 0 ):
             print "saving to sql db", cfg["name"], "commiting", "%8d"%pval,'...',
+            #session.add_all( insts )
+            session.execute( insert, insts )
             session.commit()
+            insts = []
             print "DONE"
             
     print "saving to sql db", cfg["name"], "final commit"
+    #print 'ADD ALL', session.add_all( insts )
+    #session.execute( insts )
+    session.execute( insert, insts )
     session.commit()
+    session.flush()
+    insts = []
     print "saving to sql db", cfg["name"], "finished"
 
     if uniques is not None:
@@ -617,8 +919,14 @@ def read_raw_files():
 def main():
     print "main"
 
+    parser_SQL_struct.create_db()
+    parser_SQL_struct.database.drop_indexes()
+
     process_config()
     read_raw_files()
+
+    parser_SQL_struct.database.restore_indexes()
+    parser_SQL_struct.dump_all(tables=parser_SQL_struct.database.get_tables_names())
 
 
 
@@ -665,11 +973,11 @@ config = {
                                 #"collection_type": holders["collection_type"],
                                 #"qualifier_type" : holders["qualifier_type" ],
                             },
-                            "db"        : db_ccode,
+                            "db"        : parser_SQL_struct.db_ccode,
                             "post"      : [ add_to_db ]
     },
     "COLL"              : {
-                            "_uniques"  : ["inst_code"],
+                            "_uniques"  : [("inst_code",)],
                             "parser"    : read_dump,
                             "has_header": False,
                             "sep"       : "\t",
@@ -678,7 +986,7 @@ config = {
                                 [ "inst_type" ],#and the second column is the corresponding species-level taxid.
                                 [ "inst_name" ] #third column is the taxid itself,
                             ],
-                            "db"        : db_coll,
+                            "db"        : parser_SQL_struct.db_coll,
                             "post"      : [ add_to_db ]
     },
     "COWNER"            : {
@@ -689,7 +997,7 @@ config = {
                                 #"collection_type": holders["collection_type"],
                                 #"qualifier_type" : holders["qualifier_type" ],
                             },
-                            "db"        : db_cowner,
+                            "db"        : parser_SQL_struct.db_cowner,
                             "post"      : [ add_to_db ]
     },
     "TAXID_NUC"         : {
@@ -702,8 +1010,9 @@ config = {
                                 [ "gi"   , int ],#nucleotide's gi
                                 [ "taxid", int ],#taxid
                             ],
-                            "db"        : db_taxid_nuc,
-                            "post"      : [ add_to_db ]
+                            "db"        : parser_SQL_struct.db_taxid_nuc,
+                            "during"    : [ add_to_db_rolling() ]
+                            #"post"      : [ add_to_db ]
     },
     "TAXID_PROT"        : {
                             #"skip"      : True,
@@ -715,15 +1024,16 @@ config = {
                                 [ "gi"   , int ],#nucleotide's gi
                                 [ "taxid", int ],#taxid
                             ],
-                            "db"        : db_taxid_prot,
-                            "post"      : [ add_to_db ]
+                            "db"        : parser_SQL_struct.db_taxid_prot,
+                            "during"    : [ add_to_db_rolling() ]
+                            #"post"      : [ add_to_db ]
     },
     "ICODE"             : {
                             "parser": read_dump,
                             "converters": {
                                 "inst_id": int
                             },
-                            "db"        : db_icode,
+                            "db"        : parser_SQL_struct.db_icode,
                             "post"      : [ add_to_db ]
     },
     "CATEGORIES"        : {
@@ -745,7 +1055,7 @@ config = {
                                       "U": "Unclassified and Other",
                                 }
                             },
-                            "db"        : db_categories,
+                            "db"        : parser_SQL_struct.db_categories,
                             "post"      : [ add_to_db ]
     },
     "TAXDUMP_CITATIONS" : {
@@ -765,8 +1075,8 @@ config = {
                                                                    # -- backslash character (" \\ ").
                                 [ "taxid_list", parse_taxid_list ],#-- list of node ids separated by a single space
                             ],
-                            "db"        : db_citations,
-                            "db2"       : db_citations_taxid,
+                            "db"        : parser_SQL_struct.db_citations,
+                            "db2"       : parser_SQL_struct.db_citations_taxid,
                             "post"      : [ split_citations ]
     },
     "TAXDUMP_DELNODES"  : {
@@ -776,7 +1086,7 @@ config = {
                                 [ "tax_id", int ],#-- deleted node id
                             ],
                             #"post"      : linearize
-                            "db"        : db_delnodes,
+                            "db"        : parser_SQL_struct.db_delnodes,
                             "post"      : [ add_to_db ]
     },
     "TAXDUMP_DIVISION"  : {
@@ -788,12 +1098,12 @@ config = {
                                 [ "division name"      ],#-- e.g. BCT, PLN, VRT, MAM, PRI...
                                 [ "comments"           ] #comments
                             ],
-                            "db"        : db_division,
+                            "db"        : parser_SQL_struct.db_division,
                             "post"      : [ add_to_db ]
     },
     "TAXDUMP_GC"        : {
                             "parser"    : read_ptr,
-                            "db"        : db_gc,
+                            "db"        : parser_SQL_struct.db_gc,
                             "post"      : [ add_to_db ]
     },
     "TAXDUMP_GENCODE"   : {
@@ -806,7 +1116,7 @@ config = {
                                 [ "cde"                    ],#-- translation table for this genetic code
                                 [ "starts"                 ] #-- start codons for this genetic code
                             ],
-                            "db": db_gencode,
+                            "db"        : parser_SQL_struct.db_gencode,
                             "post"      : [ add_to_db ]
     },
     "TAXDUMP_MERGED"    : {
@@ -816,11 +1126,12 @@ config = {
                                 [ "old_tax_id"    , int    ],#-- id of nodes which has been merged
                                 [ "new_tax_id"    , int    ] #-- id of nodes which is result of merging
                             ],
-                            "db": db_merged,
+                            "db"        : parser_SQL_struct.db_merged,
                             "post"      : [ add_to_db ]
     },
     "TAXDUMP_NAMES"     : {
                             "parser"    : read_dump,
+                            "_uniques"  : [("tax_id", "name_txt", "name class")],
                             "has_header": False,
                             "header_map": [
                                 [ "tax_id"     , int                   ],#-- the id of node associated with this name
@@ -829,7 +1140,7 @@ config = {
                                 [ "name class"                         ] #-- (synonym, common name, ...)
                                 #[ "name class" , holders["name class"] ] #-- (synonym, common name, ...)
                             ],
-                            "db": db_names,
+                            "db"        : parser_SQL_struct.db_names,
                             "post"      : [ add_to_db ]
     },
     "TAXDUMP_NODES"     : {
@@ -851,7 +1162,7 @@ config = {
                                 [ "hidden subtree root flag"     , parse_flag      ],#-- 1 if this subtree has no sequence data yet
                                 [ "comments"                                       ] #-- free-text comments and citations
                             ],
-                            "db": db_nodes,
+                            "db"        : parser_SQL_struct.db_nodes,
                             "post"      : [ add_to_db ]
     }
 }
