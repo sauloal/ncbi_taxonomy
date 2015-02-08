@@ -1,12 +1,24 @@
-CREATE TABLE delnodes (
+CREATE TABLE nodes (
 	tax_id INTEGER NOT NULL, 
-	PRIMARY KEY (tax_id)
-);
-CREATE TABLE coll (
-	inst_code VARCHAR(10) NOT NULL, 
-	inst_type VARCHAR(5), 
-	inst_name VARCHAR(100), 
-	PRIMARY KEY (inst_code)
+	parent_tax_id INTEGER, 
+	rank VARCHAR(10), 
+	embl_code VARCHAR(10), 
+	division_id INTEGER, 
+	inherited_div_flag BOOLEAN, 
+	genetic_code_id INTEGER, 
+	inherited_gc_flag BOOLEAN, 
+	mitochondrial_genetic_code_id INTEGER, 
+	inherited_mgc_flag BOOLEAN, 
+	genbank_hidden_flag BOOLEAN, 
+	hidden_subtree_root_flag BOOLEAN, 
+	comments VARCHAR(100), 
+	PRIMARY KEY (tax_id), 
+	FOREIGN KEY(parent_tax_id) REFERENCES nodes (tax_id), 
+	CHECK (inherited_div_flag IN (0, 1)), 
+	CHECK (inherited_gc_flag IN (0, 1)), 
+	CHECK (inherited_mgc_flag IN (0, 1)), 
+	CHECK (genbank_hidden_flag IN (0, 1)), 
+	CHECK (hidden_subtree_root_flag IN (0, 1))
 );
 CREATE TABLE gc (
 	id INTEGER NOT NULL, 
@@ -18,6 +30,12 @@ CREATE TABLE gc (
 	ncbieaa VARCHAR(100), 
 	sncbieaa VARCHAR(100), 
 	PRIMARY KEY (id)
+);
+CREATE TABLE icode (
+	inst_id INTEGER NOT NULL, 
+	inst_code VARCHAR(10), 
+	unique_name VARCHAR(10), 
+	PRIMARY KEY (inst_id)
 );
 CREATE TABLE ccode (
 	coll_id INTEGER NOT NULL, 
@@ -73,35 +91,23 @@ CREATE TABLE cowner (
 	unique_name VARCHAR(10), 
 	PRIMARY KEY (inst_id)
 );
-CREATE TABLE icode (
-	inst_id INTEGER NOT NULL, 
-	inst_code VARCHAR(10), 
-	unique_name VARCHAR(10), 
-	PRIMARY KEY (inst_id)
+CREATE TABLE coll (
+	inst_code VARCHAR(10) NOT NULL, 
+	inst_type VARCHAR(5), 
+	inst_name VARCHAR(100), 
+	PRIMARY KEY (inst_code)
 );
-CREATE TABLE nodes (
+CREATE TABLE delnodes (
 	tax_id INTEGER NOT NULL, 
-	parent_tax_id INTEGER, 
-	rank VARCHAR(10), 
-	embl_code VARCHAR(10), 
-	division_id INTEGER, 
-	inherited_div_flag BOOLEAN, 
-	genetic_code_id INTEGER, 
-	inherited_gc_flag BOOLEAN, 
-	mitochondrial_genetic_code_id INTEGER, 
-	inherited_mgc_flag BOOLEAN, 
-	genbank_hidden_flag BOOLEAN, 
-	hidden_subtree_root_flag BOOLEAN, 
-	comments VARCHAR(100), 
-	PRIMARY KEY (tax_id), 
-	FOREIGN KEY(parent_tax_id) REFERENCES nodes (tax_id), 
-	CHECK (inherited_div_flag IN (0, 1)), 
-	CHECK (inherited_gc_flag IN (0, 1)), 
-	CHECK (inherited_mgc_flag IN (0, 1)), 
-	CHECK (genbank_hidden_flag IN (0, 1)), 
-	CHECK (hidden_subtree_root_flag IN (0, 1))
+	PRIMARY KEY (tax_id)
 );
 CREATE TABLE taxid_prot (
+	gi INTEGER NOT NULL, 
+	taxid INTEGER, 
+	PRIMARY KEY (gi), 
+	FOREIGN KEY(taxid) REFERENCES nodes (tax_id)
+);
+CREATE TABLE taxid_nuc (
 	gi INTEGER NOT NULL, 
 	taxid INTEGER, 
 	PRIMARY KEY (gi), 
@@ -130,12 +136,6 @@ CREATE TABLE names (
 	name_class VARCHAR(10) NOT NULL, 
 	PRIMARY KEY (tax_id, name_txt, name_class), 
 	FOREIGN KEY(tax_id) REFERENCES nodes (tax_id)
-);
-CREATE TABLE taxid_nuc (
-	gi INTEGER NOT NULL, 
-	taxid INTEGER, 
-	PRIMARY KEY (gi), 
-	FOREIGN KEY(taxid) REFERENCES nodes (tax_id)
 );
 CREATE TABLE citations_taxid (
 	cit_id INTEGER NOT NULL, 

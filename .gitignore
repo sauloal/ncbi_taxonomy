@@ -6,5 +6,11 @@
 *.sql
 *.tsv
 *.tables
+*.7z
+*.zip
+*.gz
+*.xz
+*.bz2
+
 taxdump/
 taxcat/

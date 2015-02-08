@@ -25,9 +25,9 @@ import parser_SQL_struct
 
 
 MAX_READ_LINES   = None   # max number of lines to read
-#MAX_READ_LINES   = 100000
+#MAX_READ_LINES   = 90
 
-DUMP_EVERY       = 250000
+DUMP_EVERY       = 1000000
 
 
 #
@@ -192,7 +192,6 @@ def linearize(cfg):
 
 def read_dump(fn, cfg):
     print "  parsing", fn
-    ln  = 0
     sep = "\t|\t"
 
     if "sep" in cfg:
@@ -202,7 +201,14 @@ def read_dump(fn, cfg):
         cfg["converters" ] = {}
         cfg["convertersA"] = []
 
+    desc   = cfg["desc"  ] if "desc"   in cfg else None
+
+    during = cfg["during"] if "during" in cfg else None
+
     cfg["data"] = []
+
+    if during is None:
+        cfg["data"] = [None]*DUMP_EVERY
 
     if "header_map" in cfg:
         if "header" in cfg:
@@ -231,9 +237,6 @@ def read_dump(fn, cfg):
             cfg["convertersA"].append(  v )
 
 
-    desc   = cfg["desc"] if "desc" in cfg else None
-
-    during = cfg["during"] if "during" in cfg else None
 
     headerI     = {}
     read_header = True
@@ -250,6 +253,7 @@ def read_dump(fn, cfg):
     has_read_header = False
 
 
+    ln  = 0
     for line in cfg["fh"]:
         line = line.strip().decode('ascii', 'ignore')
 
@@ -277,10 +281,10 @@ def read_dump(fn, cfg):
             continue
 
         else:
-            ln += 1
-
             if ( DUMP_EVERY is not None ) and ( ln % DUMP_EVERY == 0 ):
-                print " ... %8d" % (ln)
+                print " ... %11d" % (ln)
+                if during is None:
+                    cfg["data"].extend( [None]*DUMP_EVERY )
 
             # print line
             cols = line.split(sep)
@@ -307,10 +311,13 @@ def read_dump(fn, cfg):
 
 
             if during is None:
-                cfg["data"].append( tuple(cols) )
+                cfg["data"][ ln ] = tuple(cols)
+            
             else:
                 for d in during:
                     d(cfg, cols)
+
+            ln += 1
 
             #dcols = [None] * len(cols)
             #
@@ -342,6 +349,8 @@ def read_dump(fn, cfg):
 
             if MAX_READ_LINES is not None and ln ==MAX_READ_LINES:
                 break
+
+    cfg["data"] = cfg["data"][:ln]
 
     print "  parsed", fn, ln, "lines"
 
@@ -525,12 +534,12 @@ class datagen(list):
     
     def next(self):
         if self.num >= self.n:
-            print " ... %8d / %8d END" % (self.num, self.n)
+            print " ... %11d / %11d END" % (self.num, self.n)
             self.num = 0
             raise StopIteration()
         
         if ( DUMP_EVERY is not None ) and ( self.num % DUMP_EVERY == 0 ):
-            print " ... %8d / %8d" % (self.num, self.n)
+            print " ... %11d / %11d" % (self.num, self.n)
         
         #for pval in xrange(len(self.data)):
         v = self[self.num]
@@ -550,6 +559,7 @@ class datagen(list):
 
             if found:
                 return self.next()
+        
         return v
     
     def __len__(self):
@@ -581,7 +591,7 @@ class add_to_db_rolling(object):
             self.database = parser_SQL_struct.database
             self.table    = self.db_table.__table__
             self.insert   = self.table.insert(bind=self.database.engine)
-            self.insts    = []
+            self.insts    = [None] * DUMP_EVERY
 
 
         v    = dict(izip(iter(self.header), iter(vals)))
@@ -600,14 +610,14 @@ class add_to_db_rolling(object):
             if found:
                 return
     
-        self.insts.append( v )
-        
         if ( DUMP_EVERY is not None ) and ( self.n != 0 ) and ( self.n % DUMP_EVERY == 0 ):
             #print "saving to sql db", self.name, "commiting", "%8d"%self.n,'...',
             self.session.execute( self.insert, self.insts )
             self.session.commit()
-            self.insts = []
+            self.insts = [None] * DUMP_EVERY
             #print "DONE"
+        
+        self.insts[ self.n % DUMP_EVERY ] = v
         
         self.n += 1
 
@@ -615,8 +625,9 @@ class add_to_db_rolling(object):
         print "saving to sql db", self.name, "final commit"
         #print 'ADD ALL', session.add_all( insts )
         #session.execute( insts )
-        if len(self.insts) > 0:
-            self.session.execute( self.insert, self.insts )
+        if self.n%DUMP_EVERY > 0:
+            #print "n", self.n, "dump every", DUMP_EVERY, "num", self.n%DUMP_EVERY, self.insts[:self.n%DUMP_EVERY]
+            self.session.execute( self.insert, self.insts[:self.n%DUMP_EVERY] )
             self.session.commit()
             self.session.flush()
             self.insts = []
@@ -799,7 +810,7 @@ def add_to_db3(cfg):
         insts.append( register )
         
         if ( DUMP_EVERY is not None ) and ( pval != 0 ) and ( pval % DUMP_EVERY == 0 ):
-            print "saving to sql db", cfg["name"], "commiting", "%8d"%pval,'...',
+            print "saving to sql db", cfg["name"], "commiting", "%11d"%pval,'...',
             #session.add_all( insts )
             session.execute( insert, insts )
             session.commit()
