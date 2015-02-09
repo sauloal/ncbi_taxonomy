@@ -12,5 +12,7 @@
 *.xz
 *.bz2
 
+database.py
+
 taxdump/
 taxcat/
