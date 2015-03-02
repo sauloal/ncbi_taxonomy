@@ -11,6 +11,9 @@
 *.gz
 *.xz
 *.bz2
+*.csv
+
+.~*
 
 database.py
 

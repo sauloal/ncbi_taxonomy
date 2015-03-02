@@ -63,11 +63,7 @@ def dump_sql():
 
 
 
-
-def create_db():
-    if os.path.exists(SQL_FILE_NAME):
-        os.remove(SQL_FILE_NAME)
-    
+def load_db():
     #loaddb(SQL_FILE_NAME, echo=False)
     global database
     #database        = loaddb(db_data_name=SQL_FILE_NAME)
@@ -76,6 +72,13 @@ def create_db():
     global session
     session = database.get_session()
     print 'session', session
+
+
+def create_db():
+    if os.path.exists(SQL_FILE_NAME):
+        os.remove(SQL_FILE_NAME)
+    
+    load_db()
 
     return database
 
