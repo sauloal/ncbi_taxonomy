@@ -2,17 +2,19 @@
 
 import os
 import sys
+from collections import defaultdict
 
 import parser_SQL_struct
 
+col_names = "species|species subgroup|species group|subgenus|genus|subtribe|tribe|subfamily|family|superfamily|parvorder|infraorder|suborder|order|superorder|infraclass|subclass|class|superclass|subphylum|phylum|subkingdom|kingdom|superkingdom|root"
+
 
 class csv_holder(object):
-    def __init__(self, incsv, col_names):
+    def __init__(self, incsv):
         self.incsv      = incsv
-        self.col_names  = col_names
-        self.num_levels = len(col_names)
         self.names      = []
         self.data       = {}
+        self.col_names  = col_names.split("|")
         self.read_csv()
         
     def read_csv(self):
@@ -38,10 +40,14 @@ class csv_holder(object):
                     
                 self.names.append( name )
                 
-                self.data[ name ] = [None]*self.num_levels
+                self.data[ name ] = [None]*len(self.col_names)
+                
+                #if len(self.data) > 15:
+                #    break
 
     def save(self, filename):
         print "saving to %s" % filename
+            
         with open(filename, 'w') as fhd:
             #print self.col_names
             fhd.write("name\t" + "\t".join(self.col_names) + "\n")
@@ -50,12 +56,17 @@ class csv_holder(object):
                 #print data
                 cols = name + "\t" + "\t".join([str(d) if d is not None else "" for d in data])
                 fhd.write( cols + "\n" )
-        
+
+
 
 class filler(object):
     def __init__(self, csv, querier):
         self.csv     = csv
         self.querier = querier
+        
+        self.csv.col_names.insert(0, "tax_id"  )
+        self.csv.col_names.insert(0, "division")
+        
         self.get_ids()
         self.get_taxonomy()
 
@@ -66,20 +77,23 @@ class filler(object):
             if   len(tax_ids) == 0:
                 print "Species '%s' does not exists" % name
                 sys.exit(1)
+                
             elif len(tax_ids) > 1:
                 print "More than one instance of %s" % name
                 sys.exit(1)
+                
             else:
                 tax_id = tax_ids[0]
                 print "adding species %-30s id %7d" % (name, tax_id)
-                self.csv.data[name][1] = tax_id
-                #break
-                
-    def get_taxonomy(self):
-        for name in sorted(self.csv.data):
-            tax_id        = self.csv.data[name][1]
+                self.csv.data[name].insert(0, tax_id       )
 
-            print "getting taxonomy of '%s' id %d" % ( name, tax_id )
+    def get_taxonomy(self):
+        datas     = {}
+        
+        for name in sorted(self.csv.data):
+            tax_id        = self.csv.data[name][0]
+
+            print "getting taxonomy of %-30s id %d" % ( "'%s'"%name, tax_id )
             node          = get_node(tax_id)
 
             #print " node", node
@@ -87,41 +101,84 @@ class filler(object):
 
             division_id   = node.division_id
             division_name = get_division_name(division_id)
-            print " division_id", division_id, "division_name", division_name
+            datas[name]   = data
 
-            
+            self.csv.data[name].insert(0, division_name)
 
+
+        for name, data in datas.items():
             for d in data:
-                p_rank   = d[0]
-                p_tax_id = d[1]
-                p_name   = get_name_from_tax_id(p_tax_id)[0]
-                d[3]     = p_name
-                print "  parent rank %-15s id %7d name %-30s" % (p_rank, p_tax_id, p_name)
-            
+                p_rank             = d[0]
+                p_tax_id           = d[1]
+                p_name             = get_name_from_tax_id(p_tax_id          )[0] if p_tax_id           is not None else "None"
+                d[2]               = p_name
+                
+                p_offspring_rank   = d[3]
+                p_offspring_tax_id = d[4]
+                p_offspring_name   = get_name_from_tax_id(p_offspring_tax_id)[0] if p_offspring_tax_id is not None else "None"
+                d[5]               = p_offspring_name
+                
+                p_parent_rank      = d[6]
+                p_parent_tax_id    = d[7]
+                p_parent_name      = get_name_from_tax_id(p_parent_tax_id   )[0] if p_parent_tax_id    is not None else "None"
+                d[8]               = p_parent_name
+
+                print "  parent rank %-17s id %s name %-30s off (%-17s %s %-30s) par (%-17s %s %-30s)" % \
+                (p_rank          , "%7d"%p_tax_id           if p_tax_id           is not None else "   None", p_name,
+                 p_offspring_rank, "%7d"%p_offspring_tax_id if p_offspring_tax_id is not None else "   None", p_offspring_name,
+                 p_parent_rank   , "%7d"%p_parent_tax_id    if p_parent_tax_id    is not None else "   None", p_parent_name)
+
+                if p_rank not in self.csv.col_names:
+                    print "unknown rank %s" % p_rank
+                    sys.exit(1)
+                    
                 if p_rank in self.csv.col_names:
                     p_pos = self.csv.col_names.index(p_rank)
                     self.csv.data[name][p_pos] = p_name
-            
-            self.csv.data[name][0] = division_name
-            #print self.csv.data[name]
-            
-            #break
+            print
+
+
+
 
 def parse_node(node):
     data            = []
-    parent          = node.parent
-
-    data.append( [node.rank, node.tax_id, parent.parent.tax_id, None] )
-    #print "  ", data[-1]
-
-    while parent.tax_id != 1:
-        data.append( [parent.rank, parent.tax_id, parent.parent.tax_id, None] )
-        #print "  ", data[-1]
-        parent = parent.parent
-
-    data.append( [parent.rank, parent.tax_id, parent.parent.tax_id, None] )
 
     #print "  ", data[-1]
+
+    
+    prev_rank      = None
+    current_rank   = node.rank
+    next_rank      = node.parent.rank
+    
+    prev_tax_id    = None
+    current_tax_id = node.tax_id
+    next_tax_id    = node.parent.tax_id
+
+    current        = node
+   
+    while current_tax_id != 1:
+        #print current
+        if current_rank != "no rank":
+            while next_rank == "no rank" and next_tax_id != 1:
+                current        = current.parent
+                next_rank      = current.parent.rank
+                next_tax_id    = current.parent.tax_id
+
+            data.append( [current_rank, current_tax_id, None, prev_rank, prev_tax_id, None, next_rank, next_tax_id, None] )
+
+            prev_rank      = current_rank
+            prev_tax_id    = current_tax_id
+            
+        current        = current.parent
+        current_rank   = current.rank
+        current_tax_id = current.tax_id
+        next_rank      = current.parent.rank
+        next_tax_id    = current.parent.tax_id
+        
+    current_rank = "root"
+    data[-1][6] = current_rank
+    data.append( [current_rank, current_tax_id, None, prev_rank, prev_tax_id, None, None, None, None] )
+
     return data
 
 def get_ranks():
@@ -129,7 +186,7 @@ def get_ranks():
     ranks = session.query(field).distinct().all()
     ranks = [r.rank for r in ranks]
     ranks.sort()
-    ranks.remove("no rank")
+    #ranks.remove("no rank")
     return ranks
 
 def query_name(name):
@@ -190,10 +247,12 @@ def main(args):
         
     elif cmd == "fill":
         incsv  = args[1]
-        ranks  = get_ranks()
-        ranks.insert(0, "tax_id"  )
-        ranks.insert(0, "division")
-        holder = csv_holder(incsv, ranks)
+        #ranks  = get_ranks()
+        #ranks   = []
+        #ranks.insert(0, "tax_id"  )
+        #ranks.insert(0, "division")
+        #holder = csv_holder(incsv, ranks)
+        holder = csv_holder(incsv)
         fill   = filler(holder, get_tax_id_from_name)
         holder.save(incsv + '.filled.csv')
         
