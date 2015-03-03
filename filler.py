@@ -2,11 +2,18 @@
 
 import os
 import sys
+import operator
+
 from collections import defaultdict
 
 import parser_SQL_struct
 
-col_names = "species|species subgroup|species group|subgenus|genus|subtribe|tribe|subfamily|family|superfamily|parvorder|infraorder|suborder|order|superorder|infraclass|subclass|class|superclass|subphylum|phylum|subkingdom|kingdom|superkingdom|root"
+#./filler.py query "Solanum lycopersicu"
+#./filler.py query "Solanum lycopersicum"
+#./filler.py list
+#./filler.py fill classes.csv
+
+col_names = "species|species subgroup|species group|subgenus|genus|subtribe|tribe|subfamily|family|superfamily|parvorder|infraorder|suborder|order|superorder|infraclass|subclass|class|superclass|subphylum|phylum|subkingdom|kingdom|superkingdom|division|root"
 
 
 class csv_holder(object):
@@ -14,7 +21,7 @@ class csv_holder(object):
         self.incsv      = incsv
         self.names      = []
         self.data       = {}
-        self.col_names  = col_names.split("|")
+        self.col_names  = list(reversed(col_names.split("|")))
         self.read_csv()
         
     def read_csv(self):
@@ -51,12 +58,15 @@ class csv_holder(object):
         with open(filename, 'w') as fhd:
             #print self.col_names
             fhd.write("name\t" + "\t".join(self.col_names) + "\n")
-            for name in self.names:
+
+            ordered_names = sorted( self.names, key=lambda x: self.data[x][1:] )
+            print "ordered_names", ordered_names
+
+            for name in ordered_names:
                 data = self.data[name]
                 #print data
                 cols = name + "\t" + "\t".join([str(d) if d is not None else "" for d in data])
                 fhd.write( cols + "\n" )
-
 
 
 class filler(object):
@@ -64,11 +74,10 @@ class filler(object):
         self.csv     = csv
         self.querier = querier
         
-        self.csv.col_names.insert(0, "tax_id"  )
-        self.csv.col_names.insert(0, "division")
-        
         self.get_ids()
         self.get_taxonomy()
+
+        self.csv.col_names.insert(0, "tax_id")
 
     def get_ids(self):
         for name in sorted(self.csv.names):
@@ -85,7 +94,7 @@ class filler(object):
             else:
                 tax_id = tax_ids[0]
                 print "adding species %-30s id %7d" % (name, tax_id)
-                self.csv.data[name].insert(0, tax_id       )
+                self.csv.data[name].insert(0, tax_id)
 
     def get_taxonomy(self):
         datas     = {}
@@ -103,7 +112,8 @@ class filler(object):
             division_name = get_division_name(division_id)
             datas[name]   = data
 
-            self.csv.data[name].insert(0, division_name)
+            p_pos = self.csv.col_names.index("division")
+            self.csv.data[name][p_pos] = division_name
 
 
         for name, data in datas.items():
