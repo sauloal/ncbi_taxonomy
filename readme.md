@@ -1,3 +1,5 @@
+[![DOI](https://zenodo.org/badge/doi/10.5281/zenodo.18995.svg)](http://dx.doi.org/10.5281/zenodo.18995)
+
 ncbi_taxonomy
 
 downloads the taxonomy database from NCBI
