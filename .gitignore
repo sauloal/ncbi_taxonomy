@@ -15,6 +15,7 @@
 
 .~*
 
+push.sh
 database.py
 
 taxdump/
